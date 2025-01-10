@@ -321,7 +321,7 @@ int sample_server_callback(picoquic_cnx_t* cnx,
  * - The loop breaks if the socket return an error.
  */
 
-int picoquic_sample_server(int server_port, int nbytes,
+int picoquic_sample_server(int server_port, int nbytes, const char* cca,
                            const char* server_cert, const char* server_key, const char* default_dir)
 {
     /* Start: start the QUIC process with cert and key files */
@@ -350,9 +350,10 @@ int picoquic_sample_server(int server_port, int nbytes,
     else {
         picoquic_set_cookie_mode(quic, 2);
 
-        picoquic_set_default_congestion_algorithm(quic, picoquic_bbr_algorithm);
+        picoquic_set_default_congestion_algorithm_by_name(quic, cca);
 
-        picoquic_set_qlog(quic, qlog_dir);
+        // Avoid logging by default for performance
+        // picoquic_set_qlog(quic, qlog_dir);
 
         picoquic_set_log_level(quic, 1);
 
