@@ -49,10 +49,10 @@
 static void usage(char const * sample_name)
 {
     fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "    %s client server_name port folder *queried_file\n", sample_name);
+    fprintf(stderr, "    %s client server_name port folder cca *queried_file\n", sample_name);
     fprintf(stderr, "    %s background server_name port folder\n", sample_name);
     fprintf(stderr, "or :\n");
-    fprintf(stderr, "    %s server port cert_file private_key_file folder nbytes\n", sample_name);
+    fprintf(stderr, "    %s server port cert_file private_key_file folder nbytes cca\n", sample_name);
     exit(1);
 }
 
@@ -89,15 +89,14 @@ int main(int argc, char** argv)
         usage(argv[0]);
     }
     else if (strcmp(argv[1], "client") == 0) {
-        if (argc < 6) {
+        if (argc < 7) {
             usage(argv[0]);
         }
         else {
             int server_port = get_port(argv[0], argv[3]);
-            char const** file_names = (char const **)(argv + 5);
-            int nb_files = argc - 5;
-
-            exit_code = picoquic_sample_client(argv[2], server_port, argv[4], nb_files, file_names);
+            char const** file_names = (char const **)(argv + 6);
+            int nb_files = argc - 6;
+            exit_code = picoquic_sample_client(argv[2], argv[5], server_port, argv[4], nb_files, file_names);
         }
     }
     else if (strcmp(argv[1], "background") == 0) {
@@ -111,13 +110,13 @@ int main(int argc, char** argv)
         }
     }
     else if (strcmp(argv[1], "server") == 0) {
-        if (argc != 7) {
+        if (argc != 8) {
             usage(argv[0]);
         }
         else {
             int server_port = get_port(argv[0], argv[2]);
             int nbytes = get_nbytes(argv[0], argv[6]);
-            exit_code = picoquic_sample_server(server_port, nbytes, argv[3], argv[4], argv[5]);
+            exit_code = picoquic_sample_server(server_port, nbytes, argv[7], argv[3], argv[4], argv[5]);
         }
     }
     else

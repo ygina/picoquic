@@ -224,7 +224,6 @@ int sample_client_callback(picoquic_cnx_t* cnx,
                     uint64_t now = picoquic_current_time();
                     double duration = (double)(now - client_ctx->starttime_us) / 1000000.0;
                     fprintf(stdout, "File transfer finished in: %.6fs\n", duration);
-                    client_ctx->starttime_us = 0;
                     client_ctx->duration_s = duration;
 
                     stream_ctx->is_stream_finished = 1;
@@ -386,13 +385,14 @@ static int sample_client_loop_cb(picoquic_quic_t* quic, picoquic_packet_loop_cb_
  * - Find the server's address
  * - Initialize the client context and create a client connection.
  */
-static int sample_client_init(char const* server_name, int server_port, char const* default_dir,
+static int sample_client_init(char const* server_name, int server_port, char const *cca, char const* default_dir,
     char const* ticket_store_filename, char const* token_store_filename,
     struct sockaddr_storage * server_address, picoquic_quic_t** quic, picoquic_cnx_t** cnx, sample_client_ctx_t *client_ctx)
 {
     int ret = 0;
     char const* sni = PICOQUIC_SAMPLE_SNI;
-    char const* qlog_dir = PICOQUIC_SAMPLE_CLIENT_QLOG_DIR;
+    // Avoid logging for performance
+    // char const* qlog_dir = PICOQUIC_SAMPLE_CLIENT_QLOG_DIR;
     uint64_t current_time = picoquic_current_time();
 
     *quic = NULL;
@@ -433,10 +433,11 @@ static int sample_client_init(char const* server_name, int server_port, char con
                 fprintf(stderr, "No token file present. Will create one as <%s>.\n", token_store_filename);
             }
 
-            picoquic_set_default_congestion_algorithm(*quic, picoquic_bbr_algorithm);
+            picoquic_set_default_congestion_algorithm_by_name(*quic, cca);
 
             picoquic_set_key_log_file_from_env(*quic);
-            picoquic_set_qlog(*quic, qlog_dir);
+            // Avoid logging by default for performance
+            // picoquic_set_qlog(*quic, qlog_dir);
             picoquic_set_log_level(*quic, 1);
         }
     }
@@ -499,7 +500,8 @@ static int sample_client_init(char const* server_name, int server_port, char con
  * - The loop breaks if the client connection is finished.
  */
 
-int picoquic_sample_client(char const * server_name, int server_port, char const * default_dir,
+int picoquic_sample_client(char const * server_name, char const * cca,
+    int server_port, char const * default_dir,
     int nb_files, char const ** file_names)
 {
     int ret = 0;
@@ -510,7 +512,7 @@ int picoquic_sample_client(char const * server_name, int server_port, char const
     char const* ticket_store_filename = PICOQUIC_SAMPLE_CLIENT_TICKET_STORE;
     char const* token_store_filename = PICOQUIC_SAMPLE_CLIENT_TOKEN_STORE;
 
-    ret = sample_client_init(server_name, server_port, default_dir,
+    ret = sample_client_init(server_name, server_port, cca, default_dir,
         ticket_store_filename, token_store_filename,
         &server_address, &quic, &cnx, &client_ctx);
 
@@ -530,7 +532,6 @@ int picoquic_sample_client(char const * server_name, int server_port, char const
 
     /* Wait for packets */
     ret = picoquic_packet_loop(quic, 0, server_address.ss_family, 0, 0, 0, sample_client_loop_cb, &client_ctx);
-
     /* Done. At this stage, we could print out statistics, etc. */
     sample_client_report(&client_ctx);
 
