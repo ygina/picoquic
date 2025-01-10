@@ -21,7 +21,7 @@
 
 #ifndef PICOQUIC_SAMPLE_H
 #define PICOQUIC_SAMPLE_H
-/* Header file for the picoquic sample project. 
+/* Header file for the picoquic sample project.
  * It contains the definitions common to client and server */
 
 #ifdef __cplusplus
@@ -40,8 +40,8 @@ extern "C" {
 
 #define PICOQUIC_SAMPLE_CLIENT_TICKET_STORE "sample_ticket_store.bin";
 #define PICOQUIC_SAMPLE_CLIENT_TOKEN_STORE "sample_token_store.bin";
-#define PICOQUIC_SAMPLE_CLIENT_QLOG_DIR ".";
-#define PICOQUIC_SAMPLE_SERVER_QLOG_DIR ".";
+#define PICOQUIC_SAMPLE_CLIENT_QLOG_DIR "/tmp/sidekick-logs";
+#define PICOQUIC_SAMPLE_SERVER_QLOG_DIR "/tmp/sidekick-logs";
 
 #define PICOQUIC_SAMPLE_BACKGROUND_MAX_FILES 32
 
@@ -50,7 +50,8 @@ int picoquic_sample_client(char const* server_name, int server_port, char const*
 
 int picoquic_sample_background(char const* server_name, int server_port, char const* default_dir);
 
-int picoquic_sample_server(int server_port, const char* pem_cert, const char* pem_key, const char * default_dir);
+int picoquic_sample_server(int server_port, int nbytes,
+                           const char* pem_cert, const char* pem_key, const char * default_dir);
 
 #ifdef __cplusplus
 }

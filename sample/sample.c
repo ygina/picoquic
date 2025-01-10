@@ -19,14 +19,14 @@
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* The "sample" project builds a simple file transfer program that can be 
+/* The "sample" project builds a simple file transfer program that can be
  * instantiated in client or server mode. The programe can be instantiated
  * as either:
  *    picoquic_sample client server_name port folder *queried_file
  * or:
  *    picoquic_sample server port cert_file private_key_file folder
  *
- * The client opens a quic connection to the server, and then fetches 
+ * The client opens a quic connection to the server, and then fetches
  * the listed files. The client opens one bidir client stream for each
  * file, writes the requested file name in the stream data, and then
  * marks the stream as finished. The server reads the file name, and
@@ -52,7 +52,7 @@ static void usage(char const * sample_name)
     fprintf(stderr, "    %s client server_name port folder *queried_file\n", sample_name);
     fprintf(stderr, "    %s background server_name port folder\n", sample_name);
     fprintf(stderr, "or :\n");
-    fprintf(stderr, "    %s server port cert_file private_key_file folder\n", sample_name);
+    fprintf(stderr, "    %s server port cert_file private_key_file folder nbytes\n", sample_name);
     exit(1);
 }
 
@@ -65,6 +65,16 @@ int get_port(char const* sample_name, char const* port_arg)
     }
 
     return server_port;
+}
+
+int get_nbytes(char const *sample_name, char const *nbytes_arg)
+{
+    int nbytes = atoi(nbytes_arg);
+    if (nbytes <= 0) {
+        fprintf(stderr, "Invalid number of bytes: %s\n", nbytes_arg);
+        usage(sample_name);
+    }
+    return nbytes;
 }
 
 int main(int argc, char** argv)
@@ -101,12 +111,13 @@ int main(int argc, char** argv)
         }
     }
     else if (strcmp(argv[1], "server") == 0) {
-        if (argc != 6) {
+        if (argc != 7) {
             usage(argv[0]);
         }
         else {
             int server_port = get_port(argv[0], argv[2]);
-            exit_code = picoquic_sample_server(server_port, argv[3], argv[4], argv[5]);
+            int nbytes = get_nbytes(argv[0], argv[6]);
+            exit_code = picoquic_sample_server(server_port, nbytes, argv[3], argv[4], argv[5]);
         }
     }
     else

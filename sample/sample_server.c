@@ -21,7 +21,7 @@
 
 /* The "sample" project builds a simple file transfer program that can be
  * instantiated in client or server mode. The "sample_server" implements
- * the server components of the sample application. 
+ * the server components of the sample application.
  *
  * Developing the server requires two main components:
  *  - the server "callback" that implements the server side of the
@@ -111,57 +111,15 @@ sample_server_stream_ctx_t * sample_server_create_stream_context(sample_server_c
     return stream_ctx;
 }
 
+int NBYTES = 10000;
+
 int sample_server_open_stream(sample_server_ctx_t* server_ctx, sample_server_stream_ctx_t* stream_ctx)
 {
-    int ret = 0;
-    char file_path[1024];
-
-    /* Keep track that the full file name was acquired. */
-    stream_ctx->is_name_read = 1;
-
-    /* Verify the name, then try to open the file */
-    if (server_ctx->default_dir_len + stream_ctx->name_length + 1 > sizeof(file_path)) {
-        ret = PICOQUIC_SAMPLE_NAME_TOO_LONG_ERROR;
+    if (NBYTES <= 0) {
+        return PICOQUIC_SAMPLE_NO_SUCH_FILE_ERROR;
     }
-    else {
-        /* Verify that the default path is empty of terminates with "/" or "\" depending on OS,
-         * and format the file path */
-        size_t dir_len = server_ctx->default_dir_len;
-        if (dir_len > 0) {
-            memcpy(file_path, server_ctx->default_dir, dir_len);
-            if (file_path[dir_len - 1] != PICOQUIC_FILE_SEPARATOR[0]) {
-                file_path[dir_len] = PICOQUIC_FILE_SEPARATOR[0];
-                dir_len++;
-            }
-        }
-        memcpy(file_path + dir_len, stream_ctx->file_name, stream_ctx->name_length);
-        file_path[dir_len + stream_ctx->name_length] = 0;
-
-        /* Use the picoquic_file_open API for portability to Windows and Linux */
-        stream_ctx->F = picoquic_file_open(file_path, "rb");
-
-        if (stream_ctx->F == NULL) {
-            ret = PICOQUIC_SAMPLE_NO_SUCH_FILE_ERROR;
-        }
-        else {
-            /* Assess the file size, as this is useful for data planning */
-            long sz;
-            fseek(stream_ctx->F, 0, SEEK_END);
-            sz = ftell(stream_ctx->F);
-
-            if (sz <= 0) {
-                stream_ctx->F = picoquic_file_close(stream_ctx->F);
-                ret = PICOQUIC_SAMPLE_FILE_READ_ERROR;
-            }
-            else {
-                stream_ctx->file_length = (size_t)sz;
-                fseek(stream_ctx->F, 0, SEEK_SET);
-                ret = 0;
-            }
-        }
-    }
-
-    return ret;
+    stream_ctx->file_length = (size_t)NBYTES;
+    return 0;
 }
 
 void sample_server_delete_stream_context(sample_server_ctx_t* server_ctx, sample_server_stream_ctx_t* stream_ctx)
@@ -299,36 +257,21 @@ int sample_server_callback(picoquic_cnx_t* cnx,
             if (stream_ctx == NULL) {
                 /* This should never happen */
             }
-            else if (stream_ctx->F == NULL) {
+            else if (stream_ctx->file_length == 0) {
                 /* Error, asking for data after end of file */
             }
             else {
                 /* Implement the zero copy callback */
                 size_t available = stream_ctx->file_length - stream_ctx->file_sent;
                 int is_fin = 1;
-                uint8_t* buffer;
-
                 if (available > length) {
                     available = length;
                     is_fin = 0;
                 }
-                
-                buffer = picoquic_provide_stream_data_buffer(bytes, available, is_fin, !is_fin);
-                if (buffer != NULL) {
-                    size_t nb_read = fread(buffer, 1, available, stream_ctx->F);
-
-                    if (nb_read != available) {
-                        /* Error while reading the file */
-                        sample_server_delete_stream_context(server_ctx, stream_ctx);
-                        (void)picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_FILE_READ_ERROR);
-                    }
-                    else {
-                        stream_ctx->file_sent += available;
-                    }
-                }
-                else {
-                /* Should never happen according to callback spec. */
-                    ret = -1;
+                picoquic_provide_stream_data_buffer(bytes, available, is_fin, !is_fin);
+                stream_ctx->file_sent += available;
+                if (stream_ctx->file_sent >= stream_ctx->file_length) {
+                    fprintf(stdout, "Finished file transfer of %zu bytes\n", stream_ctx->file_sent);
                 }
             }
             break;
@@ -375,10 +318,11 @@ int sample_server_callback(picoquic_cnx_t* cnx,
  *     - if a message arrives, process it.
  *     - else, check whether there is something to send.
  *       if there is, send it.
- * - The loop breaks if the socket return an error. 
+ * - The loop breaks if the socket return an error.
  */
 
-int picoquic_sample_server(int server_port, const char* server_cert, const char* server_key, const char* default_dir)
+int picoquic_sample_server(int server_port, int nbytes,
+                           const char* server_cert, const char* server_key, const char* default_dir)
 {
     /* Start: start the QUIC process with cert and key files */
     int ret = 0;
@@ -413,6 +357,8 @@ int picoquic_sample_server(int server_port, const char* server_cert, const char*
         picoquic_set_log_level(quic, 1);
 
         picoquic_set_key_log_file_from_env(quic);
+
+        NBYTES = nbytes;
     }
 
     /* Wait for packets using the wait loop provided in the library.
