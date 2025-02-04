@@ -324,6 +324,8 @@ int sample_server_callback(picoquic_cnx_t* cnx,
 int picoquic_sample_server(int server_port, int nbytes, const char* cca,
                            const char* server_cert, const char* server_key, const char* default_dir)
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     /* Start: start the QUIC process with cert and key files */
     int ret = 0;
     picoquic_quic_t* quic = NULL;

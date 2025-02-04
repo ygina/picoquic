@@ -524,6 +524,8 @@ int picoquic_sample_client(char const * server_name, char const * cca,
     int server_port, char const * default_dir,
     int nb_files, char const ** file_names)
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     int ret = 0;
     struct sockaddr_storage server_address;
     picoquic_quic_t* quic = NULL;
