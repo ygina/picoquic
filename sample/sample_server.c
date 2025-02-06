@@ -47,6 +47,7 @@
 #include <autoqlog.h>
 #include "picoquic_sample.h"
 #include "picoquic_packet_loop.h"
+#include "picoquic_internal.h"
 
 /* Server context and callback management:
  *
@@ -271,7 +272,8 @@ int sample_server_callback(picoquic_cnx_t* cnx,
                 picoquic_provide_stream_data_buffer(bytes, available, is_fin, !is_fin);
                 stream_ctx->file_sent += available;
                 if (stream_ctx->file_sent >= stream_ctx->file_length) {
-                    fprintf(stdout, "Finished file transfer of %zu bytes\n", stream_ctx->file_sent);
+                    fprintf(stdout, "Finished file transfer of %zu bytes, %ld spurious retransmissions\n",
+                        stream_ctx->file_sent, cnx->nb_spurious);
                 }
             }
             break;
