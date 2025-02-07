@@ -1233,7 +1233,10 @@ static int picoquic_stream_network_input(picoquic_cnx_t* cnx, uint64_t stream_id
                 ret = picoquic_connection_error(cnx, err, 0);
             }
         } else if (stream->consumed_offset >= offset &&  cnx->callback_fn != NULL){
-            if (new_fin_offset >= stream->consumed_offset) {
+            if (stream->consumed_offset > offset || new_fin_offset <= stream->consumed_offset) {
+                printf("spurious [%ld-%ld] consumed=%ld\n", offset, new_fin_offset, stream->consumed_offset);
+            }
+            if (new_fin_offset > stream->consumed_offset) {
                 /* Arrival of in sequence bytes */
                 uint64_t delivered_index = stream->consumed_offset - offset;
                 uint64_t data_length = length - delivered_index;
@@ -2552,6 +2555,8 @@ picoquic_packet_t* picoquic_check_spurious_retransmission(picoquic_cnx_t* cnx,
             }
 
             cnx->nb_spurious++;
+            printf("picoquic_check_spurious_retransmission %ld %ld\n",
+                old_path->nb_spurious, cnx->nb_spurious);
             should_delete = p;
         }
 
