@@ -1438,6 +1438,7 @@ static int picoquic_stream_network_input(picoquic_cnx_t* cnx, uint64_t stream_id
         } else if (stream->consumed_offset >= offset &&  cnx->callback_fn != NULL){
             if (stream->consumed_offset > offset || new_fin_offset <= stream->consumed_offset) {
                 printf("spurious [%ld-%ld] consumed=%ld\n", offset, new_fin_offset, stream->consumed_offset);
+                cnx->nb_spurious_receiver++;
             }
             if (new_fin_offset > stream->consumed_offset) {
                 /* Arrival of in sequence bytes */
