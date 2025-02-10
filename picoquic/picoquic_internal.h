@@ -1415,6 +1415,7 @@ typedef struct st_picoquic_cnx_t {
     uint64_t nb_retransmission_total;
     uint64_t nb_preemptive_repeat;
     uint64_t nb_spurious;
+    uint64_t nb_spurious_receiver;
     uint64_t nb_crypto_key_rotations;
     uint64_t nb_packet_holes_inserted;
     uint64_t max_ack_delay_remote;

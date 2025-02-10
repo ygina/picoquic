@@ -46,6 +46,7 @@
 #include <picosocks.h>
 #include <autoqlog.h>
 #include <picoquic_packet_loop.h>
+#include "picoquic_internal.h"
 #include "picoquic_sample.h"
 
  /* Client context and callback management:
@@ -96,6 +97,7 @@ typedef struct st_sample_client_ctx_t {
     int nb_files;
     int nb_files_received;
     int nb_files_failed;
+    int nb_spurious_receiver;
     int is_disconnected;
     uint64_t starttime_us;
     double duration_s;
@@ -155,9 +157,10 @@ static void sample_client_report(sample_client_ctx_t* client_ctx)
         else {
             status = "unknown status";
         }
-        printf("%s: %s, received %zu bytes in %.6f seconds",
+        printf("%s: %s, received %zu bytes in %.6f seconds, %d spurious retransmissions",
                client_ctx->file_names[stream_ctx->file_rank], status,
-               stream_ctx->bytes_received, client_ctx->duration_s);
+               stream_ctx->bytes_received, client_ctx->duration_s,
+               client_ctx->nb_spurious_receiver);
         if (stream_ctx->is_stream_reset && stream_ctx->remote_error != PICOQUIC_SAMPLE_NO_ERROR){
             char const* error_text = "unknown error";
             switch (stream_ctx->remote_error) {
@@ -286,6 +289,8 @@ int sample_client_callback(picoquic_cnx_t* cnx,
             fprintf(stdout, "Connection closed.\n");
             /* Mark the connection as completed */
             client_ctx->is_disconnected = 1;
+            /* Copy connection statistics */
+            client_ctx->nb_spurious_receiver = cnx->nb_spurious_receiver;
             /* Remove the application callback */
             picoquic_set_callback(cnx, NULL, NULL);
             break;
