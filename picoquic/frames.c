@@ -4076,7 +4076,9 @@ uint8_t* picoquic_format_ack_frame_in_context(picoquic_cnx_t* cnx, uint8_t* byte
     }
     if (!not_needed){
         uint8_t* num_block_byte = NULL;
-        picoquic_sack_item_t* last_sack = picoquic_sack_last_item(&ack_ctx->sack_list);
+        picoquic_sack_item_t* first_sack = picoquic_sack_first_item(&ack_ctx->sack_list);
+        picoquic_sack_item_t* last_sack = picoquic_sack_next_sidekick_item(picoquic_sack_last_item(
+            &ack_ctx->sack_list), first_sack, current_time);
 
         if (current_time > ack_ctx->time_stamp_largest_received) {
             ack_delay = current_time - ack_ctx->time_stamp_largest_received;
@@ -4109,7 +4111,8 @@ uint8_t* picoquic_format_ack_frame_in_context(picoquic_cnx_t* cnx, uint8_t* byte
             /* Implement adaptive tuning of lowest repeat range */
             int nb_sent_max_acked = 0;
             int nb_sent_max_skip = 0;
-            picoquic_sack_item_t* next_sack = picoquic_sack_previous_item(last_sack);
+            picoquic_sack_item_t* next_sack = picoquic_sack_next_sidekick_item(
+                picoquic_sack_previous_item(last_sack), first_sack, current_time);
 
             /* Update send count for the top range */
             picoquic_sack_item_record_sent(&ack_ctx->sack_list, last_sack, is_opportunistic);
@@ -4146,7 +4149,8 @@ uint8_t* picoquic_format_ack_frame_in_context(picoquic_cnx_t* cnx, uint8_t* byte
                         }
                     }
                 }
-                next_sack = picoquic_sack_previous_item(next_sack);
+                next_sack = picoquic_sack_next_sidekick_item(
+                    picoquic_sack_previous_item(next_sack), first_sack, current_time);
             }
             /* When numbers are lower than 64, varint encoding fits on one byte */
             *num_block_byte = (uint8_t)num_block;
