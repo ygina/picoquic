@@ -99,6 +99,7 @@ int picoquic_sack_insert_item(picoquic_sack_list_t* sack_list, uint64_t range_mi
         sack_new->start_of_sack_range = range_min;
         sack_new->end_of_sack_range = range_max;
         sack_new->time_created = current_time;
+        sack_new->time_modified = current_time;
         sack_list->rc[0].range_counts[0] += 1;
         sack_list->rc[1].range_counts[0] += 1;
         (void)picosplay_insert(&sack_list->ack_tree, sack_new);
@@ -215,7 +216,7 @@ int picoquic_update_sack_list(picoquic_sack_list_t* sack_list,
             next->start_of_sack_range = pn64_min;
             /* record that this item was modified. */
             picoquic_sack_item_record_reset(sack_list, next);
-            next->time_created = current_time;
+            next->time_modified = current_time;
             ret = 0;
             /* set previous to next and do the extension part */
             previous = next;
@@ -230,7 +231,7 @@ int picoquic_update_sack_list(picoquic_sack_list_t* sack_list,
             previous->end_of_sack_range = pn64_max;
             /* record that this item was modified. */
             picoquic_sack_item_record_reset(sack_list, previous);
-            previous->time_created = current_time;
+            previous->time_modified = current_time;
             ret = 0;
         }
         else {
@@ -239,8 +240,8 @@ int picoquic_update_sack_list(picoquic_sack_list_t* sack_list,
             previous->end_of_sack_range = next->end_of_sack_range;
             /* record that this item was modified. */
             picoquic_sack_item_record_reset(sack_list, previous);
-            if (next->time_created > previous->time_created) {
-                previous->time_created = next->time_created;
+            if (next->time_modified > previous->time_modified) {
+                previous->time_modified = next->time_modified;
             }
             ret = 0;
             /* Delete the next item, accounting of ack times, etc. */
@@ -386,7 +387,7 @@ void picoquic_update_ack_horizon(picoquic_sack_list_t* sack_list, uint64_t curre
     picoquic_sack_item_t* first_sack = picoquic_sack_first_item(sack_list);
 
     while (first_sack != NULL && first_sack->nb_times_sent[0] >= PICOQUIC_MAX_ACK_RANGE_REPEAT) {
-        int64_t delay = current_time - first_sack->time_created;
+        int64_t delay = current_time - first_sack->time_modified;
         if (delay > sack_list->horizon_delay) {
             picoquic_sack_item_t* next_sack = picoquic_sack_next_item(first_sack);
             if (next_sack != NULL) {
