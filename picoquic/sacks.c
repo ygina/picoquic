@@ -459,11 +459,12 @@ void picoquic_sack_list_free(picoquic_sack_list_t* sack_list)
 
 /* The next SACK item to include in the sidekick delayed ack, including the current one.
  */
-picoquic_sack_item_t* picoquic_sack_next_sidekick_item(picoquic_sack_item_t* sack_item, picoquic_sack_item_t* first_item, uint64_t current_time)
+picoquic_sack_item_t* picoquic_sack_next_sidekick_item(picoquic_sack_item_t* sack_item,
+    picoquic_sack_item_t* first_item, uint64_t current_time, int sidekick_ack_delay)
 {
     while (sack_item != NULL &&
            sack_item != first_item &&
-           sack_item->time_created + 60000 > current_time) {
+           sack_item->time_created + sidekick_ack_delay * 1000 > current_time) {
         sack_item = picoquic_sack_previous_item(sack_item);
     }
     return sack_item;
