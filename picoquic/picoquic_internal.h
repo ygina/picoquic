@@ -1558,6 +1558,9 @@ typedef struct st_picoquic_cnx_t {
     char* binlog_file_name;
     void (*memlog_call_back)(picoquic_cnx_t* cnx, picoquic_path_t* path, void* v_memlog, int op_code, uint64_t current_time);
     void *memlog_ctx;
+
+    /* Management of sidekick functionality */
+    int sidekick_ack_delay;
 } picoquic_cnx_t;
 
 typedef struct st_picoquic_packet_data_t {
@@ -1880,7 +1883,8 @@ int picoquic_sack_list_reset(picoquic_sack_list_t* first_sack,
 
 void picoquic_sack_list_free(picoquic_sack_list_t* first_sack);
 
-picoquic_sack_item_t* picoquic_sack_next_sidekick_item(picoquic_sack_item_t* sack_item, picoquic_sack_item_t* first_item, uint64_t current_time);
+picoquic_sack_item_t* picoquic_sack_next_sidekick_item(picoquic_sack_item_t* sack_item,
+    picoquic_sack_item_t* first_item, uint64_t current_time, int sidekick_ack_delay);
 
 uint64_t picoquic_sack_item_range_start(picoquic_sack_item_t* sack_item);
 

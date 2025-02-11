@@ -391,7 +391,7 @@ static int sample_client_loop_cb(picoquic_quic_t* quic, picoquic_packet_loop_cb_
  * - Initialize the client context and create a client connection.
  */
 static int sample_client_init(char const* server_name, int server_port, char const *cca, char const* default_dir,
-    char const* ticket_store_filename, char const* token_store_filename,
+    char const* ticket_store_filename, char const* token_store_filename, int sidekick_ack_delay,
     struct sockaddr_storage * server_address, picoquic_quic_t** quic, picoquic_cnx_t** cnx, sample_client_ctx_t *client_ctx)
 {
     int ret = 0;
@@ -460,6 +460,7 @@ static int sample_client_init(char const* server_name, int server_port, char con
         /* Create a client connection */
         *cnx = picoquic_create_cnx(*quic, picoquic_null_connection_id, picoquic_null_connection_id,
             (struct sockaddr*)server_address, current_time, 0, sni, PICOQUIC_SAMPLE_ALPN, 1);
+        (*cnx)->sidekick_ack_delay = sidekick_ack_delay;
 
         if (*cnx == NULL) {
             fprintf(stderr, "Could not create connection context\n");
@@ -508,7 +509,7 @@ static int sample_client_init(char const* server_name, int server_port, char con
 
 int picoquic_sample_client(char const * server_name, char const * cca,
     int server_port, char const * default_dir,
-    int nb_files, char const ** file_names)
+    int nb_files, char const ** file_names, int sidekick_ack_delay)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
@@ -521,7 +522,7 @@ int picoquic_sample_client(char const * server_name, char const * cca,
     char const* token_store_filename = PICOQUIC_SAMPLE_CLIENT_TOKEN_STORE;
 
     ret = sample_client_init(server_name, server_port, cca, default_dir,
-        ticket_store_filename, token_store_filename,
+        ticket_store_filename, token_store_filename, sidekick_ack_delay,
         &server_address, &quic, &cnx, &client_ctx);
 
     if (ret == 0) {
