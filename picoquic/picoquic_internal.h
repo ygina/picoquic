@@ -1818,6 +1818,8 @@ int picoquic_sack_list_reset(picoquic_sack_list_t* first_sack,
 
 void picoquic_sack_list_free(picoquic_sack_list_t* first_sack);
 
+picoquic_sack_item_t* picoquic_sack_next_sidekick_item(picoquic_sack_item_t* sack_item, picoquic_sack_item_t* first_item, uint64_t current_time);
+
 uint64_t picoquic_sack_item_range_start(picoquic_sack_item_t* sack_item);
 
 uint64_t picoquic_sack_item_range_end(picoquic_sack_item_t* sack_item);
