@@ -763,6 +763,7 @@ typedef struct st_picoquic_sack_item_t {
     uint64_t start_of_sack_range;
     uint64_t end_of_sack_range;
     uint64_t time_created;
+    uint64_t time_modified;
     int nb_times_sent[2];
 } picoquic_sack_item_t;
 
