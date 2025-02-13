@@ -110,6 +110,7 @@
 #include "picoquic_unified_log.h"
 
 #include "quack.h"
+#include "sidekick_utils.h"
 #define QUACK_THRESHOLD 20
 
 #if defined(_WINDOWS)
@@ -801,6 +802,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     }
 
     /* Initialize quack data structure */
+    uint32_t quack_id;
     PowerSumQuackU32* quack = quack_new(QUACK_THRESHOLD);
 
     /* Wait for packets */
@@ -900,6 +902,10 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     ret = picoquic_win_recvmsg_async_start(&s_ctx[socket_rank]);
                 }
 #else
+                /* Add the packet to the quACK */
+                quack_id = sidekick_fixed_offset_to_id(received_buffer,
+                    (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
+                quack_insert(quack, quack_id);
                 /* Submit the packet to the server */
                 ret = picoquic_incoming_packet_ex(quic, received_buffer,
                     (size_t)bytes_recv, (struct sockaddr*)&addr_from,
