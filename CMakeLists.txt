@@ -325,6 +325,7 @@ target_include_directories(picoquic-core
     PRIVATE
         ${PTLS_INCLUDE_DIRS}
         ${OPENSSL_INCLUDE_DIR}
+        ../quack/include
     PUBLIC
         ${MBEDTLS_INCLUDE_DIRS}
         picoquic
@@ -333,9 +334,11 @@ target_link_libraries(picoquic-core
     PRIVATE
         ${OPENSSL_LIBRARIES}
         ${MBEDTLS_LIBRARIES}
+        quack
     PUBLIC
         ${PTLS_LIBRARIES}
         Threads::Threads)
+link_directories(../quack/target/release)
 set_picoquic_compile_settings(picoquic-core)
 
 if (BUILD_DEMO OR BUILD_LOGREADER OR (BUILD_TESTING AND picoquic_BUILD_TESTS))

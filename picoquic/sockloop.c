@@ -109,6 +109,9 @@
 #include "picoquic_packet_loop.h"
 #include "picoquic_unified_log.h"
 
+#include "quack.h"
+#define QUACK_THRESHOLD 20
+
 #if defined(_WINDOWS)
 #ifdef UDP_SEND_MSG_SIZE
 static int udp_gso_available = 1;
@@ -797,6 +800,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         DBG_PRINTF("%s", "Thread cannot run");
     }
 
+    /* Initialize quack data structure */
+    PowerSumQuackU32* quack = quack_new(QUACK_THRESHOLD);
+
     /* Wait for packets */
     /* TODO: add stopping condition, was && (!just_once || !connection_done) */
     /* Actually, no, rely on the callback return code for that? */
@@ -1074,6 +1080,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         /* Normal termination requested by the application, returns no error */
         ret = 0;
     }
+
+    /* Free memory */
+    quack_free(quack);
 
     /* Close the sockets */
     for (int i = 0; i < nb_sockets; i++) {
