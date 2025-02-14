@@ -89,14 +89,13 @@ int main(int argc, char** argv)
         usage(argv[0]);
     }
     else if (strcmp(argv[1], "client") == 0) {
-        const int num_client_args = 7;
-        if (argc < num_client_args + 1) {
+        if (argc != 8) {
             usage(argv[0]);
         }
         else {
             int server_port = get_port(argv[0], argv[3]);
-            char const** file_names = (char const **)(argv + num_client_args);
-            int nb_files = argc - num_client_args;
+            int nb_files = 1;
+            char const** file_names = (char const **)(argv + argc - nb_files);
             int sidekick_ack_delay = atoi(argv[6]);
             exit_code = picoquic_sample_client(argv[2], argv[5], server_port, argv[4], nb_files, file_names, sidekick_ack_delay);
         }
