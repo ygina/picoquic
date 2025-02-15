@@ -737,6 +737,9 @@ typedef struct st_picoquic_quic_t {
     picoquic_performance_log_fn perflog_fn;
     void* v_perflog_ctx;
 
+    /* Management of sidekick functionality */
+    void* quacker;
+
 #ifdef BBRExperiment
     bbr_exp bbr_exp_flags;
 #endif
