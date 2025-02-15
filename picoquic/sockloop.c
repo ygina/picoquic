@@ -109,6 +109,9 @@
 #include "picoquic_packet_loop.h"
 #include "picoquic_unified_log.h"
 
+#include "quacker.h"
+#include "sidekick_utils.h"
+
 #if defined(_WINDOWS)
 #ifdef UDP_SEND_MSG_SIZE
 static int udp_gso_available = 1;
@@ -797,6 +800,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         DBG_PRINTF("%s", "Thread cannot run");
     }
 
+    /* Initialize quack id variable */
+    uint32_t quack_id;
+
     /* Wait for packets */
     /* TODO: add stopping condition, was && (!just_once || !connection_done) */
     /* Actually, no, rely on the callback return code for that? */
@@ -903,6 +909,12 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     &last_cnx, current_time);
 #endif
 
+                /* Add the packet to the quACK */
+                if (quic != NULL && quic->quacker != NULL) {
+                    quack_id = sidekick_fixed_offset_to_id(received_buffer,
+                        (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
+                    udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
+                }
 
                 if (loop_callback != NULL) {
                     size_t b_recvd = (size_t)bytes_recv;
@@ -917,6 +929,10 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     loop_immediate = 1;
                     continue;
                 }
+            }
+
+            if (quic != NULL && quic->quacker != NULL) {
+                udp_quacker_update_time(quic->quacker, loop_time / 1000);
             }
 
             if (ret == PICOQUIC_NO_ERROR_SIMULATE_NAT) {
