@@ -326,6 +326,7 @@ target_include_directories(picoquic-core
         ${PTLS_INCLUDE_DIRS}
         ${OPENSSL_INCLUDE_DIR}
         ../../quacker/include
+        ../../sidekick_utils/include
     PUBLIC
         ${MBEDTLS_INCLUDE_DIRS}
         picoquic
@@ -335,10 +336,11 @@ target_link_libraries(picoquic-core
         ${OPENSSL_LIBRARIES}
         ${MBEDTLS_LIBRARIES}
         quacker
+        sidekick_utils
     PUBLIC
         ${PTLS_LIBRARIES}
         Threads::Threads)
-link_directories(../../quacker/target/release)
+link_directories(../../quacker/target/release ../../sidekick_utils/target/release)
 set_picoquic_compile_settings(picoquic-core)
 
 if (BUILD_DEMO OR BUILD_LOGREADER OR (BUILD_TESTING AND picoquic_BUILD_TESTS))
