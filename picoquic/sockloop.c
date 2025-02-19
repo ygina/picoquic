@@ -109,6 +109,9 @@
 #include "picoquic_packet_loop.h"
 #include "picoquic_unified_log.h"
 
+#include "quacker.h"
+#include "sidekick_utils.h"
+
 #if defined(_WINDOWS)
 #ifdef UDP_SEND_MSG_SIZE
 static int udp_gso_available = 1;
@@ -583,13 +586,16 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
     int64_t delta_t,
     int * is_wake_up_event,
     picoquic_network_thread_ctx_t * thread_ctx,
-    int * socket_rank)
+    int * socket_rank,
+    int sidekick_fd,
+    int * is_sidekick_event)
 {
     fd_set readfds;
     struct timeval tv;
     int ret_select = 0;
     int bytes_recv = 0;
     int sockmax = 0;
+    *is_sidekick_event = 0;
 
     if (received_ecn != NULL) {
         *received_ecn = 0;
@@ -610,6 +616,14 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
             sockmax = (int)thread_ctx->wake_up_pipe_fd[0];
         }
         FD_SET(thread_ctx->wake_up_pipe_fd[0], &readfds);
+    }
+
+    // Add the sidekick socket
+    if (sidekick_fd != 0) {
+        if (sockmax < (int)sidekick_fd) {
+            sockmax = (int)sidekick_fd;
+        }
+        FD_SET(sidekick_fd, &readfds);
     }
 
     if (delta_t <= 0) {
@@ -643,6 +657,15 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
             }
             else {
                 *is_wake_up_event = 1;
+            }
+        }
+        else if (sidekick_fd != 0 && FD_ISSET(sidekick_fd, &readfds)) {
+            bytes_recv = recv(sidekick_fd, buffer, buffer_max, 0);
+            if (bytes_recv <= 0) {
+                DBG_PRINTF("Could not receive packet on sidekick socket= %d!\n",
+                    sidekick_fd);
+            } else {
+                *is_sidekick_event = 1;
             }
         }
         else
@@ -706,6 +729,31 @@ static int monitor_system_call_duration(packet_loop_system_call_duration_t* sc_d
     return shall_notify;
 }
 
+static int create_addr_key(uint8_t buf[ADDR_KEY_LEN], struct sockaddr_storage *peer_addr, struct sockaddr_storage *local_addr) {
+    // Cast sockaddr_storage to sockaddr_in for IPv4 addresses
+    struct sockaddr_in *peer_in = (struct sockaddr_in *)peer_addr;
+    struct sockaddr_in *local_in = (struct sockaddr_in *)local_addr;
+
+    // Extract the source IP and port
+    uint32_t src_ip = peer_in->sin_addr.s_addr;
+    uint16_t src_port = peer_in->sin_port;
+
+    // Extract the destination IP and port
+    uint32_t dst_ip = local_in->sin_addr.s_addr;
+    uint16_t dst_port = local_in->sin_port;
+
+    // Check that all addresses have been set
+    if (dst_ip == 0 || dst_port == 0 || src_ip == 0 || src_port == 0) {
+        return 0;
+    }
+
+    // Copy the data into the byte array
+    memcpy(buf, &src_ip, 4);
+    memcpy(buf + 4, &src_port, 2);
+    memcpy(buf + 6, &dst_ip, 4);
+    memcpy(buf + 10, &dst_port, 2);
+    return 1;
+}
 
 #ifdef _WINDOWS
     DWORD WINAPI picoquic_packet_loop_v3(LPVOID v_ctx)
@@ -797,6 +845,33 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         DBG_PRINTF("%s", "Thread cannot run");
     }
 
+    /* Initialize sidekick variables */
+    uint32_t quack_id;
+    uint8_t addr_key[ADDR_KEY_LEN];
+    uint64_t discovery_sent = current_time;
+    int sidekick_fd = 0;
+    int is_sidekick_event = 0;
+
+    /* Bind to a socket on the sidekick connection, if configured. */
+    if (quic->quacker != NULL) {
+        struct sockaddr_in quacker_addr = udp_quacker_src_addr(quic->quacker);
+        if ((sidekick_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+            DBG_PRINTF("%s", "sidekick socket failed");
+            exit(EXIT_FAILURE);
+        }
+        int enable = 1;
+        if (setsockopt(sidekick_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) < 0) {
+            DBG_PRINTF("%s", "sidekick setsockopt(SO_REUSEADDR) failed");
+            close(sidekick_fd);
+            exit(EXIT_FAILURE);
+        }
+        if (bind(sidekick_fd, (struct sockaddr*)&quacker_addr, sizeof(quacker_addr)) < 0) {
+            DBG_PRINTF("%s", "sidekick bind failed");
+            close(sidekick_fd);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     /* Wait for packets */
     /* TODO: add stopping condition, was && (!just_once || !connection_done) */
     /* Actually, no, rely on the callback return code for that? */
@@ -850,7 +925,8 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             &addr_from,
             &addr_to, &if_index_to, &received_ecn,
             buffer, sizeof(buffer),
-            delta_t, &is_wake_up_event, thread_ctx, &socket_rank);
+            delta_t, &is_wake_up_event, thread_ctx, &socket_rank,
+            sidekick_fd, &is_sidekick_event);
         received_buffer = buffer;
 #endif
         current_time = picoquic_current_time();
@@ -866,6 +942,11 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         }
         else if (bytes_recv == 0 && is_wake_up_event) {
             ret = loop_callback(quic, picoquic_packet_loop_wake_up, loop_callback_ctx, NULL);
+        }
+        else if (is_sidekick_event) {
+            if (bytes_recv > 0 && quic->quacker != NULL) {
+                udp_quacker_handle_sidekick_payload(quic->quacker, received_buffer, bytes_recv);
+            }
         }
         else {
             uint64_t loop_time = current_time;
@@ -901,6 +982,12 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     &last_cnx, current_time);
 #endif
 
+                /* Add the packet to the quACK */
+                if (quic != NULL && quic->quacker != NULL) {
+                    quack_id = sidekick_fixed_offset_to_id(received_buffer,
+                        (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
+                    udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
+                }
 
                 if (loop_callback != NULL) {
                     size_t b_recvd = (size_t)bytes_recv;
@@ -915,6 +1002,10 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     loop_immediate = 1;
                     continue;
                 }
+            }
+
+            if (quic != NULL && quic->quacker != NULL) {
+                udp_quacker_update_time(quic->quacker, loop_time / 1000);
             }
 
             if (ret == PICOQUIC_NO_ERROR_SIMULATE_NAT) {
@@ -949,6 +1040,22 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     send_buffer, send_buffer_size, &send_length,
                     &peer_addr, &local_addr, &if_index, &log_cid, &last_cnx,
                     send_msg_ptr);
+
+                // Send <NUM_DISCOVERY_PKTS> packets if
+                // (1) The quacker is enabled.
+                // (2a) We haven't sent them already OR
+                // (2b) More than <DISCOVERY_FREQ_MS> have elapsed since we
+                //      last sent them, and we're awaiting a disc ACK.
+                // (3) The base connection has bound to a local addr.
+                if (quic != NULL && quic->quacker != NULL && create_addr_key(addr_key, &peer_addr, &local_addr)) {
+                    if (udp_quacker_base_stoc_is_none(quic->quacker) ||
+                        (udp_quacker_awaiting_disc_ack(quic->quacker) &&
+                         current_time >= discovery_sent + DISCOVERY_FREQ_MS * 1000))
+                    {
+                        udp_quacker_send_discovery(quic->quacker, &addr_key, NUM_DISCOVERY_PKTS);
+                        discovery_sent = current_time;
+                    }
+                }
 
                 if (ret == 0 && send_length > 0) {
                     /* If send_msg_size is defined, sendmsg may send more than one packet.
@@ -1078,6 +1185,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     /* Close the sockets */
     for (int i = 0; i < nb_sockets; i++) {
         picoquic_packet_loop_close_socket(&s_ctx[i]);
+    }
+    if (sidekick_fd != 0) {
+        close(sidekick_fd);
     }
 
     if (send_buffer != NULL) {

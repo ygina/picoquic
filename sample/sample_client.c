@@ -48,6 +48,7 @@
 #include <picoquic_packet_loop.h>
 #include "picoquic_internal.h"
 #include "picoquic_sample.h"
+#include "quacker.h"
 
  /* Client context and callback management:
   *
@@ -528,7 +529,9 @@ static int sample_client_init(char const* server_name, int server_port, char con
 
 int picoquic_sample_client(char const * server_name, char const * cca,
     int server_port, char const * default_dir,
-    int nb_files, char const ** file_names, int sidekick_ack_delay)
+    int nb_files, char const ** file_names, int sidekick_ack_delay,
+    int quacker, size_t threshold, uint32_t freq_pkts, uint64_t freq_ms,
+    char* target_addr)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
@@ -543,6 +546,12 @@ int picoquic_sample_client(char const * server_name, char const * cca,
     ret = sample_client_init(server_name, server_port, cca, default_dir,
         ticket_store_filename, token_store_filename, sidekick_ack_delay,
         &server_address, &quic, &cnx, &client_ctx);
+
+    if (quacker) {
+        quic->quacker = udp_quacker_new(threshold, freq_pkts, freq_ms, target_addr);
+    } else {
+        quic->quacker = NULL;
+    }
 
     if (ret == 0) {
         /* Initialize all the streams contexts from the list of streams passed on the API. */
@@ -576,6 +585,10 @@ int picoquic_sample_client(char const * server_name, char const * cca,
 
     /* Free the Client context */
     sample_client_free_context(&client_ctx);
+    /* Free the quacker */
+    if (quic->quacker != NULL) {
+        udp_quacker_free(quic->quacker);
+    }
 
     return ret;
 }
