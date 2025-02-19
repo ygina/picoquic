@@ -586,13 +586,16 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
     int64_t delta_t,
     int * is_wake_up_event,
     picoquic_network_thread_ctx_t * thread_ctx,
-    int * socket_rank)
+    int * socket_rank,
+    int sidekick_fd,
+    int * is_sidekick_event)
 {
     fd_set readfds;
     struct timeval tv;
     int ret_select = 0;
     int bytes_recv = 0;
     int sockmax = 0;
+    *is_sidekick_event = 0;
 
     if (received_ecn != NULL) {
         *received_ecn = 0;
@@ -613,6 +616,14 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
             sockmax = (int)thread_ctx->wake_up_pipe_fd[0];
         }
         FD_SET(thread_ctx->wake_up_pipe_fd[0], &readfds);
+    }
+
+    // Add the sidekick socket
+    if (sidekick_fd != 0) {
+        if (sockmax < (int)sidekick_fd) {
+            sockmax = (int)sidekick_fd;
+        }
+        FD_SET(sidekick_fd, &readfds);
     }
 
     if (delta_t <= 0) {
@@ -646,6 +657,15 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
             }
             else {
                 *is_wake_up_event = 1;
+            }
+        }
+        else if (sidekick_fd != 0 && FD_ISSET(sidekick_fd, &readfds)) {
+            bytes_recv = recv(sidekick_fd, buffer, buffer_max, 0);
+            if (bytes_recv <= 0) {
+                DBG_PRINTF("Could not receive packet on sidekick socket= %d!\n",
+                    sidekick_fd);
+            } else {
+                *is_sidekick_event = 1;
             }
         }
         else
@@ -829,6 +849,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     uint32_t quack_id;
     uint8_t addr_key[ADDR_KEY_LEN];
     int sidekick_fd = 0;
+    int is_sidekick_event = 0;
 
     /* Bind to a socket on the sidekick connection, if configured. */
     if (quic->quacker != NULL) {
@@ -903,7 +924,8 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             &addr_from,
             &addr_to, &if_index_to, &received_ecn,
             buffer, sizeof(buffer),
-            delta_t, &is_wake_up_event, thread_ctx, &socket_rank);
+            delta_t, &is_wake_up_event, thread_ctx, &socket_rank,
+            sidekick_fd, &is_sidekick_event);
         received_buffer = buffer;
 #endif
         current_time = picoquic_current_time();
@@ -919,6 +941,11 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         }
         else if (bytes_recv == 0 && is_wake_up_event) {
             ret = loop_callback(quic, picoquic_packet_loop_wake_up, loop_callback_ctx, NULL);
+        }
+        else if (is_sidekick_event) {
+            if (bytes_recv > 0 && quic->quacker != NULL) {
+                udp_quacker_handle_sidekick_payload(quic->quacker, received_buffer, bytes_recv);
+            }
         }
         else {
             uint64_t loop_time = current_time;
