@@ -828,6 +828,27 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     /* Initialize sidekick variables */
     uint32_t quack_id;
     uint8_t addr_key[ADDR_KEY_LEN];
+    int sidekick_fd = 0;
+
+    /* Bind to a socket on the sidekick connection, if configured. */
+    if (quic->quacker != NULL) {
+        struct sockaddr_in quacker_addr = udp_quacker_src_addr(quic->quacker);
+        if ((sidekick_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+            DBG_PRINTF("%s", "sidekick socket failed");
+            exit(EXIT_FAILURE);
+        }
+        int enable = 1;
+        if (setsockopt(sidekick_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) < 0) {
+            DBG_PRINTF("%s", "sidekick setsockopt(SO_REUSEADDR) failed");
+            close(sidekick_fd);
+            exit(EXIT_FAILURE);
+        }
+        if (bind(sidekick_fd, (struct sockaddr*)&quacker_addr, sizeof(quacker_addr)) < 0) {
+            DBG_PRINTF("%s", "sidekick bind failed");
+            close(sidekick_fd);
+            exit(EXIT_FAILURE);
+        }
+    }
 
     /* Wait for packets */
     /* TODO: add stopping condition, was && (!just_once || !connection_done) */
@@ -1125,6 +1146,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     /* Close the sockets */
     for (int i = 0; i < nb_sockets; i++) {
         picoquic_packet_loop_close_socket(&s_ctx[i]);
+    }
+    if (sidekick_fd != 0) {
+        close(sidekick_fd);
     }
 
     if (send_buffer != NULL) {
