@@ -848,6 +848,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     /* Initialize sidekick variables */
     uint32_t quack_id;
     uint8_t addr_key[ADDR_KEY_LEN];
+    uint64_t discovery_sent = current_time;
     int sidekick_fd = 0;
     int is_sidekick_event = 0;
 
@@ -1039,10 +1040,21 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     send_buffer, send_buffer_size, &send_length,
                     &peer_addr, &local_addr, &if_index, &log_cid, &last_cnx,
                     send_msg_ptr);
-                if (quic != NULL && quic->quacker != NULL &&
-                        udp_quacker_base_stoc_is_none(quic->quacker) &&
-                        create_addr_key(addr_key, &peer_addr, &local_addr)) {
-                    udp_quacker_send_discovery(quic->quacker, &addr_key, 3);
+
+                // Send <NUM_DISCOVERY_PKTS> packets if
+                // (1) The quacker is enabled.
+                // (2a) We haven't sent them already OR
+                // (2b) More than <DISCOVERY_FREQ_MS> have elapsed since we
+                //      last sent them, and we're awaiting a disc ACK.
+                // (3) The base connection has bound to a local addr.
+                if (quic != NULL && quic->quacker != NULL && create_addr_key(addr_key, &peer_addr, &local_addr)) {
+                    if (udp_quacker_base_stoc_is_none(quic->quacker) ||
+                        (udp_quacker_awaiting_disc_ack(quic->quacker) &&
+                         current_time >= discovery_sent + DISCOVERY_FREQ_MS * 1000))
+                    {
+                        udp_quacker_send_discovery(quic->quacker, &addr_key, NUM_DISCOVERY_PKTS);
+                        discovery_sent = current_time;
+                    }
                 }
 
                 if (ret == 0 && send_length > 0) {
