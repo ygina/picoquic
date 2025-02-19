@@ -709,6 +709,31 @@ static int monitor_system_call_duration(packet_loop_system_call_duration_t* sc_d
     return shall_notify;
 }
 
+static int create_addr_key(uint8_t buf[ADDR_KEY_LEN], struct sockaddr_storage *peer_addr, struct sockaddr_storage *local_addr) {
+    // Cast sockaddr_storage to sockaddr_in for IPv4 addresses
+    struct sockaddr_in *peer_in = (struct sockaddr_in *)peer_addr;
+    struct sockaddr_in *local_in = (struct sockaddr_in *)local_addr;
+
+    // Extract the source IP and port
+    uint32_t src_ip = peer_in->sin_addr.s_addr;
+    uint16_t src_port = peer_in->sin_port;
+
+    // Extract the destination IP and port
+    uint32_t dst_ip = local_in->sin_addr.s_addr;
+    uint16_t dst_port = local_in->sin_port;
+
+    // Check that all addresses have been set
+    if (dst_ip == 0 || dst_port == 0 || src_ip == 0 || src_port == 0) {
+        return 0;
+    }
+
+    // Copy the data into the byte array
+    memcpy(buf, &src_ip, 4);
+    memcpy(buf + 4, &src_port, 2);
+    memcpy(buf + 6, &dst_ip, 4);
+    memcpy(buf + 10, &dst_port, 2);
+    return 1;
+}
 
 #ifdef _WINDOWS
     DWORD WINAPI picoquic_packet_loop_v3(LPVOID v_ctx)
@@ -800,8 +825,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         DBG_PRINTF("%s", "Thread cannot run");
     }
 
-    /* Initialize quack id variable */
+    /* Initialize sidekick variables */
     uint32_t quack_id;
+    uint8_t addr_key[ADDR_KEY_LEN];
 
     /* Wait for packets */
     /* TODO: add stopping condition, was && (!just_once || !connection_done) */
@@ -965,6 +991,11 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     send_buffer, send_buffer_size, &send_length,
                     &peer_addr, &local_addr, &if_index, &log_cid, &last_cnx,
                     send_msg_ptr);
+                if (quic != NULL && quic->quacker != NULL &&
+                        udp_quacker_base_stoc_is_none(quic->quacker) &&
+                        create_addr_key(addr_key, &peer_addr, &local_addr)) {
+                    udp_quacker_send_discovery(quic->quacker, &addr_key, 3);
+                }
 
                 if (ret == 0 && send_length > 0) {
                     /* If send_msg_size is defined, sendmsg may send more than one packet.
