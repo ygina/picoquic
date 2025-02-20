@@ -48,6 +48,7 @@
 #include <picoquic_packet_loop.h>
 #include "picoquic_internal.h"
 #include "picoquic_sample.h"
+#include "sidekick_utils.h"
 #include "quacker.h"
 
  /* Client context and callback management:
@@ -534,6 +535,7 @@ int picoquic_sample_client(char const * server_name, char const * cca,
     char* target_addr)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
+    sidekick_init_logging();
 
     int ret = 0;
     struct sockaddr_storage server_address;
