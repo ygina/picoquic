@@ -160,14 +160,12 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
 
         // Read and forward data directly
         if (stream_ctx->stream_type == SERVER) {
-            printf("Server-side received %lu bytes\n", length);
             ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.client_cnx,
                                                   global_proxy_ctx.client_stream_id,
                                                   bytes, length, // Directly forward the bytes
                                                   fin_or_event == picoquic_callback_stream_fin,
                                                   (void *)stream_ctx);
         } else {
-            printf("Client-side received %lu bytes\n", length);
             ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.server_cnx,
                                                   global_proxy_ctx.server_stream_id,
                                                   bytes, length, // Directly forward the bytes
@@ -176,11 +174,18 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         }
         if (ret != 0) {
             // Internal error
+            printf("Error forwarding data: %d\n", ret);
             (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
             return(-1);
         }
         break;
 
+    case picoquic_callback_almost_ready:
+        printf("Connection almost ready for TX/RX\n");
+        break;
+    case picoquic_callback_ready:
+        printf("Connection ready for TX/RX\n");
+        break;
     case picoquic_callback_stream_reset:
     case picoquic_callback_stop_sending:
     case picoquic_callback_stateless_reset:
@@ -188,8 +193,6 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_application_close:
     case picoquic_callback_stream_gap:
     case picoquic_callback_prepare_to_send:
-    case picoquic_callback_almost_ready:
-    case picoquic_callback_ready:
     case picoquic_callback_datagram:
     case picoquic_callback_version_negotiation:
     case picoquic_callback_request_alpn_list:
@@ -206,6 +209,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_path_address_observed:
     case picoquic_callback_app_wakeup:
         // In future: receive and forward reset, stop_sending, close, possibly other events
+        printf("Received event %d\n", fin_or_event);
         break;
     }
     return 0;
@@ -241,17 +245,22 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
                              PICOQUIC_SAMPLE_ALPN, 1);
     if (cnx == NULL) {
         fprintf(stderr, "Could not create connection context to server\n");
-        goto fail_cnx;
+        return -1;
     }
 
     // Initialize callback
     picoquic_set_callback(cnx, sample_proxy_callback, &global_proxy_ctx);
+    ret = picoquic_start_client_cnx(cnx);
+    if (ret < 0) {
+        fprintf(stderr, "Could not activate connection to backend server\n");
+    }
 
     // Create stream
     stream_ctx = (sample_proxy_stream_ctx_t *)malloc(sizeof(sample_proxy_stream_ctx_t));
     if (stream_ctx == NULL) {
         fprintf(stderr, "Could not allocate memory for stream to server\n");
-        goto fail_stream;
+        free(cnx);
+        return -1;
     }
     memset(stream_ctx, 0, sizeof(sample_proxy_stream_ctx_t));
     stream_ctx->stream_id = picoquic_get_next_local_stream_id(cnx, 0);
@@ -260,21 +269,16 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
     // Set stream active
     ret = picoquic_mark_active_stream(cnx, stream_ctx->stream_id, 1, stream_ctx);
     if (ret != 0) {
-        fprintf(stdout, "Error %d, cannot initialize stream", ret);
+        fprintf(stderr, "Error %d, cannot initialize stream", ret);
         free(stream_ctx);
-        goto fail_stream;
+        free(cnx);
+        return -1;
     }
 
     // Set global proxy data
     global_proxy_ctx.client_cnx = cnx;
     global_proxy_ctx.client_stream_id = stream_ctx->stream_id;
     return 0;
-
-fail_stream:
-    free(cnx);
-fail_cnx:
-    picoquic_free(quic);
-    return -1;
 }
 
 /*
