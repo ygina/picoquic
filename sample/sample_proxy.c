@@ -26,6 +26,11 @@
 #include "picoquic_internal.h"
 
 /*
+ * Enable debug print statements.
+ */
+int DEBUG = 1;
+
+/*
  * The direction of the connection.
  */
 typedef enum st_sample_conn_type_t {
@@ -165,12 +170,18 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                                                   bytes, length, // Directly forward the bytes
                                                   fin_or_event == picoquic_callback_stream_fin,
                                                   (void *)stream_ctx);
+            if (DEBUG) {
+                printf("[DEBUG] Forwarded %lu bytes from server to client (code: %d)\n", length, ret);
+            }
         } else {
             ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.server_cnx,
                                                   global_proxy_ctx.server_stream_id,
                                                   bytes, length, // Directly forward the bytes
                                                   fin_or_event == picoquic_callback_stream_fin,
                                                   (void *)stream_ctx);
+            if (DEBUG) {
+                printf("[DEBUG] Forwarded %lu bytes from client to server (code: %d)\n", length, ret);
+            }
         }
         if (ret != 0) {
             // Internal error
@@ -181,16 +192,25 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         break;
 
     case picoquic_callback_almost_ready:
-        printf("Connection almost ready for TX/RX\n");
+        printf("Connection to %s almost ready for TX/RX\n",
+               stream_ctx->stream_type == CLIENT ? "client" : "server");
         break;
     case picoquic_callback_ready:
-        printf("Connection ready for TX/RX\n");
+        printf("Connection to %s ready for TX/RX\n",
+               stream_ctx->stream_type == CLIENT ? "client" : "server");
         break;
-    case picoquic_callback_stream_reset:
-    case picoquic_callback_stop_sending:
-    case picoquic_callback_stateless_reset:
     case picoquic_callback_close:
+    case picoquic_callback_stream_reset:
+    case picoquic_callback_stateless_reset:
+    case picoquic_callback_stop_sending:
     case picoquic_callback_application_close:
+        printf("Connection closed or reset by %s\n",
+               stream_ctx->stream_type == CLIENT ? "client" : "server");
+        if (stream_ctx != NULL) {
+            free(stream_ctx);
+        }
+        break;
+
     case picoquic_callback_stream_gap:
     case picoquic_callback_prepare_to_send:
     case picoquic_callback_datagram:
@@ -209,7 +229,8 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_path_address_observed:
     case picoquic_callback_app_wakeup:
         // In future: receive and forward reset, stop_sending, close, possibly other events
-        printf("Received event %d\n", fin_or_event);
+        printf("Received event %d on connection to %s\n",
+               fin_or_event, stream_ctx->stream_type == CLIENT ? "client" : "server");
         break;
     }
     return 0;
@@ -253,7 +274,16 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
     ret = picoquic_start_client_cnx(cnx);
     if (ret < 0) {
         fprintf(stderr, "Could not activate connection to backend server\n");
+        free(cnx);
+        return -1;
     }
+
+    printf("Connection to backend server established; initial connection ID:");
+    picoquic_connection_id_t icid = picoquic_get_initial_cnxid(cnx);
+    for (uint8_t i = 0; i < icid.id_len; i++) {
+        printf("%02x", icid.id[i]);
+    }
+    printf("\n");
 
     // Create stream
     stream_ctx = (sample_proxy_stream_ctx_t *)malloc(sizeof(sample_proxy_stream_ctx_t));
@@ -274,6 +304,7 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
         free(cnx);
         return -1;
     }
+    printf("Stream to backend server initialized with ID %lu\n", stream_ctx->stream_id);
 
     // Set global proxy data
     global_proxy_ctx.client_cnx = cnx;
