@@ -242,7 +242,8 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
  *
  * In future: this could be done when the connection from the client is received.
  */
-int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic_t *quic) {
+int sample_proxy_init(int server_port, const char* server_ip_text, const char* cca,
+                      picoquic_quic_t **quic) {
     int ret = 0;
     struct sockaddr_storage server_address;
     picoquic_cnx_t* cnx = NULL;
@@ -258,10 +259,19 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
         return -1;
     }
 
-    // TODO confirm whether passing in the `quic` from the other side works??
+    *quic = picoquic_create(1, NULL, NULL, NULL, PICOQUIC_SAMPLE_ALPN, NULL, NULL,
+            NULL, NULL, NULL, current_time, NULL,
+            NULL, NULL, 0);
+    if (*quic == NULL) {
+        fprintf(stderr, "Could not create quic context for backend server\n");
+        return -1;
+    }
+
+    picoquic_set_default_congestion_algorithm_by_name(*quic, cca);
+    picoquic_set_log_level(*quic, 1);
 
     // Create connection
-    cnx = picoquic_create_cnx(quic, picoquic_null_connection_id, picoquic_null_connection_id,
+    cnx = picoquic_create_cnx(*quic, picoquic_null_connection_id, picoquic_null_connection_id,
                              (struct sockaddr *)&server_address, current_time, 0, sni,
                              PICOQUIC_SAMPLE_ALPN, 1);
     if (cnx == NULL) {
@@ -278,7 +288,7 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
         return -1;
     }
 
-    printf("Connection to backend server established; initial connection ID:");
+    printf("Connection to backend server established; initial connection ID: ");
     picoquic_connection_id_t icid = picoquic_get_initial_cnxid(cnx);
     for (uint8_t i = 0; i < icid.id_len; i++) {
         printf("%02x", icid.id[i]);
@@ -326,6 +336,7 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     /* Start: start the QUIC process with cert and key files */
     int ret = 0;
     picoquic_quic_t* quic = NULL;
+    picoquic_quic_t* quic_server = NULL;
     uint64_t current_time = 0;
 
     printf("Starting Picoquic Sample proxy on port %d\n", proxy_port);
@@ -335,7 +346,7 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     current_time = picoquic_current_time();
 
     /* Create QUIC context with callback */
-    quic = picoquic_create(2, // Max connections this context can handle (one in each direction)
+    quic = picoquic_create(1, // Max connections this context can handle (one in each direction)
                            proxy_cert, proxy_key,
                            NULL, // no root cert
                            PICOQUIC_SAMPLE_ALPN, // no add'l protocol negotiation
@@ -361,12 +372,15 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
         picoquic_set_key_log_file_from_env(quic);
 
         // Set up connection to backend server
-        ret = sample_proxy_init(server_port, server_ip_text, quic);
+        ret = sample_proxy_init(server_port, server_ip_text, cca, &quic_server);
     }
 
     if (ret == 0) {
         // Start packet loop
-        ret = picoquic_packet_loop(quic, proxy_port, 0, 0, 0, 0, NULL, NULL);
+        ret = picoquic_packet_loop(quic, proxy_port,
+                                   AF_INET,
+                                   0, 0, 0,
+                                   NULL, NULL);
     }
 
     /* And finish. */
@@ -375,7 +389,9 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     /* Clean up */
     if (quic != NULL) {
         picoquic_free(quic);
-        // TODO may need to free other structs?
+    }
+    if (quic_server != NULL) {
+        picoquic_free(quic_server);
     }
 
     return ret;
