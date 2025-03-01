@@ -80,6 +80,28 @@ sample_proxy_ctx_t global_proxy_ctx = {
     .server_cnx = NULL,
 };
 
+void print_cnx_info(picoquic_cnx_t* cnx, uint64_t stream_id) {
+    char ip_str[INET_ADDRSTRLEN];
+    struct sockaddr* peer_addr;
+    memset(ip_str, 0, INET_ADDRSTRLEN);
+    picoquic_get_peer_addr(cnx, &peer_addr);
+
+    if (peer_addr->sa_family == AF_INET) {
+        struct sockaddr_in* s4 = (struct sockaddr_in *)peer_addr;
+        uint8_t* addr = (uint8_t *)&s4->sin_addr;
+        printf("Proxy received connection from %d.%d.%d.%d:%d (stream ID: %lu)\n",
+            addr[0], addr[1], addr[2], addr[3],
+            ntohs(s4->sin_port),
+            stream_id);
+    }
+    else if (peer_addr->sa_family == AF_INET6) {
+        fprintf(stderr, "IPv6 not supported");
+    }
+    else {
+        fprintf(stderr, "Protocol is not IPv4 or IPv6: %hu", peer_addr->sa_family);
+    }
+}
+
 /*
  * Will be invoked for each packet in either direction.
  * - If proxy_ctx and stream_ctx are NULL, this is expected to be
@@ -101,14 +123,15 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         // Create context for the connection management
         if (global_proxy_ctx.server_cnx != NULL) {
             // Unknown new connection; warn of update
-            fprintf(stderr, "Unknown new connection");
+            fprintf(stderr, "Unknown new connection\n");
         }
         proxy_ctx = &global_proxy_ctx;
         global_proxy_ctx.server_cnx = cnx;
         picoquic_set_callback(cnx, sample_proxy_callback, proxy_ctx);
+        print_cnx_info(cnx, stream_id);
     } else {
         if (callback_ctx != &global_proxy_ctx) {
-            fprintf(stderr, "Unknown connection -- should have had global_proxy_ctx");
+            fprintf(stderr, "Unknown connection -- should have had global_proxy_ctx\n");
             return(-1);
         }
     }
@@ -123,11 +146,13 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
             stream_ctx = (sample_proxy_stream_ctx_t*)malloc(sizeof(sample_proxy_stream_ctx_t));
             if (stream_ctx == NULL) {
                 (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
+                fprintf(stderr, "Failed to allocate client-side stream\n");
                 return(-1);
             }
             stream_ctx->stream_id = stream_id;
             stream_ctx->stream_type = SERVER;
             if (picoquic_set_app_stream_ctx(cnx, stream_id, stream_ctx) != 0) {
+                fprintf(stderr, "Failed to set context for client-side stream\n");
                 (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
                 return(-1);
             }
@@ -135,12 +160,14 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
 
         // Read and forward data directly
         if (stream_ctx->stream_type == SERVER) {
+            printf("Server-side received %lu bytes\n", length);
             ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.client_cnx,
                                                   global_proxy_ctx.client_stream_id,
                                                   bytes, length, // Directly forward the bytes
                                                   fin_or_event == picoquic_callback_stream_fin,
                                                   (void *)stream_ctx);
         } else {
+            printf("Client-side received %lu bytes\n", length);
             ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.server_cnx,
                                                   global_proxy_ctx.server_stream_id,
                                                   bytes, length, // Directly forward the bytes
@@ -198,6 +225,7 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
     char const* sni = PICOQUIC_SAMPLE_SNI;
     sample_proxy_stream_ctx_t* stream_ctx = NULL;
     int is_name = 0;
+    printf("Setting up QUIC connection to %s:%d\n", server_ip_text, server_port);
 
     ret = picoquic_get_server_address(server_ip_text, server_port, &server_address, &is_name);
     if (ret != 0 || is_name) {
@@ -212,7 +240,7 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
                              (struct sockaddr *)&server_address, current_time, 0, sni,
                              PICOQUIC_SAMPLE_ALPN, 1);
     if (cnx == NULL) {
-        fprintf(stderr, "Could not create connection context\n");
+        fprintf(stderr, "Could not create connection context to server\n");
         goto fail_cnx;
     }
 
@@ -222,7 +250,7 @@ int sample_proxy_init(int server_port, const char* server_ip_text, picoquic_quic
     // Create stream
     stream_ctx = (sample_proxy_stream_ctx_t *)malloc(sizeof(sample_proxy_stream_ctx_t));
     if (stream_ctx == NULL) {
-        fprintf(stderr, "Could not allocate memory for stream stream\n");
+        fprintf(stderr, "Could not allocate memory for stream to server\n");
         goto fail_stream;
     }
     memset(stream_ctx, 0, sizeof(sample_proxy_stream_ctx_t));
