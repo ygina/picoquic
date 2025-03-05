@@ -192,12 +192,10 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         break;
 
     case picoquic_callback_almost_ready:
-        printf("Connection to %s almost ready for TX/RX\n",
-               stream_ctx->stream_type == CLIENT ? "client" : "server");
+        printf("Connection almost ready for TX/RX\n");
         break;
     case picoquic_callback_ready:
-        printf("Connection to %s ready for TX/RX\n",
-               stream_ctx->stream_type == CLIENT ? "client" : "server");
+        printf("Connection ready for TX/RX\n");
         break;
     case picoquic_callback_close:
     case picoquic_callback_stream_reset:
