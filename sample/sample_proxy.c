@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <pthread.h>
 #include <picoquic.h>
 #include <picosocks.h>
 #include <picoquic_utils.h>
@@ -29,6 +30,14 @@
  * Enable debug print statements.
  */
 int DEBUG = 1;
+
+/*
+ * Args for thread functions.
+ */
+typedef struct st_sample_proxy_args_t {
+    int proxy_port;
+    picoquic_quic_t *quic;
+} sample_proxy_args_t;
 
 /*
  * The direction of the connection.
@@ -201,13 +210,16 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         break;
 
     case picoquic_callback_almost_ready:
-        printf("Connection almost ready for TX/RX\n");
+        printf("Connection almost ready for TX/RX: ");
+        print_cnx_info(cnx, stream_id);
         break;
     case picoquic_callback_ready:
-        printf("Connection ready for TX/RX\n");
+        printf("Connection ready for TX/RX: ");
+        print_cnx_info(cnx, stream_id);
         break;
     case picoquic_callback_prepare_to_send:
-        printf("Connection ready for sending data\n");
+        printf("Connection ready for sending data: ");
+        print_cnx_info(cnx, stream_id);
         break;
     case picoquic_callback_close:
     case picoquic_callback_stream_reset:
@@ -331,6 +343,22 @@ int sample_proxy_init_to_server(int server_port, const char* server_ip_text, con
     return 0;
 }
 
+// Thread function for opening port to accept client connections
+void* to_client_func(void *args) {
+    sample_proxy_args_t *proxy_args = (sample_proxy_args_t *)args;
+    printf("Start packet loop to listen for connections from client\n");
+    picoquic_packet_loop(proxy_args->quic, proxy_args->proxy_port, 0, 0, 0, 0, NULL, NULL);
+    return NULL;
+}
+
+// Thread function for maintaining connection to backend server
+void* to_server_func(void *args) {
+    sample_proxy_args_t *proxy_args = (sample_proxy_args_t *)args;
+    printf("Start packet loop to backend server\n");
+    picoquic_packet_loop(proxy_args->quic, 0, 0, 0, 0, 0, NULL, NULL);
+    return NULL;
+}
+
 /*
  * Proxy setup:
  * - Create QUIC contexts.
@@ -341,12 +369,12 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
                           const char* cca, int server_port, const char *server_ip_text)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
-
-    /* Start: start the QUIC process with cert and key files */
     int ret = 0;
     picoquic_quic_t* quic = NULL;
-    picoquic_quic_t* quic_server = NULL;
+    picoquic_quic_t* quic_to_server = NULL;
     uint64_t current_time = 0;
+    pthread_t to_client_thread, to_server_thread;
+    sample_proxy_args_t args;
 
     printf("Starting Picoquic Sample proxy on port %d\n", proxy_port);
     printf("Proxying to %s:%d\n", server_ip_text, server_port);
@@ -381,16 +409,21 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
         picoquic_set_key_log_file_from_env(quic);
 
         // Set up connection to backend server
-        ret = sample_proxy_init_to_server(server_port, server_ip_text, cca, &quic_server);
+        ret = sample_proxy_init_to_server(server_port, server_ip_text, cca, &quic_to_server);
     }
 
+
+    // Start packet loops
     if (ret == 0) {
-        // Start packet loop
-        ret = picoquic_packet_loop(quic, proxy_port,
-                                   AF_INET,
-                                   0, 0, 0,
-                                   NULL, NULL);
+        args.proxy_port = proxy_port;
+        args.quic = quic;
+        pthread_create(&to_client_thread, NULL, to_client_func, (void *)&args);
+        args.quic = quic_to_server;
+        pthread_create(&to_server_thread, NULL, to_server_func, (void *)&args);
     }
+
+    pthread_join(to_client_thread, NULL);
+    pthread_join(to_server_thread, NULL);
 
     /* And finish. */
     printf("Proxy exit, ret = %d\n", ret);
@@ -399,8 +432,8 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     if (quic != NULL) {
         picoquic_free(quic);
     }
-    if (quic_server != NULL) {
-        picoquic_free(quic_server);
+    if (quic_to_server != NULL) {
+        picoquic_free(quic_to_server);
     }
 
     return ret;
