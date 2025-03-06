@@ -346,8 +346,8 @@ int sample_proxy_init_to_server(int server_port, const char* server_ip_text, con
 // Thread function for opening port to accept client connections
 void* to_client_func(void *args) {
     sample_proxy_args_t *proxy_args = (sample_proxy_args_t *)args;
-    printf("Start packet loop to listen for connections from client\n");
-    picoquic_packet_loop(proxy_args->quic, proxy_args->proxy_port, 0, 0, 0, 0, NULL, NULL);
+    printf("Start packet loop to listen for connections from client on %d\n", proxy_args->proxy_port);
+    picoquic_packet_loop(proxy_args->quic, proxy_args->proxy_port, AF_INET, 0, 0, 0, NULL, NULL);
     return NULL;
 }
 
@@ -355,7 +355,7 @@ void* to_client_func(void *args) {
 void* to_server_func(void *args) {
     sample_proxy_args_t *proxy_args = (sample_proxy_args_t *)args;
     printf("Start packet loop to backend server\n");
-    picoquic_packet_loop(proxy_args->quic, 0, 0, 0, 0, 0, NULL, NULL);
+    picoquic_packet_loop(proxy_args->quic, 0, AF_INET, 0, 0, 0, NULL, NULL);
     return NULL;
 }
 
