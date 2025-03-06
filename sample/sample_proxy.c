@@ -35,9 +35,9 @@ int DEBUG = 1;
  */
 typedef enum st_sample_conn_type_t {
     // Connection is between the proxy and the end-to-end connection's client
-    CLIENT,
+    TO_CLIENT,
     // Connection is between the proxy and the end-to-end connection's server
-    SERVER,
+    TO_SERVER,
 } sample_conn_type_t;
 
 /* Per-stream ctx passed into RX callback for each packet.
@@ -61,12 +61,12 @@ typedef struct st_sample_proxy_stream_ctx_t {
  */
 typedef struct st_sample_proxy_ctx_t {
     // QUIC stream identifiers
-    uint64_t        client_stream_id;
-    uint64_t        server_stream_id;
+    uint64_t        to_client_stream_id;
+    uint64_t        to_server_stream_id;
     // Pointer to the QUIC connection structures,
     // usable for sending data
-    picoquic_cnx_t *client_cnx;
-    picoquic_cnx_t *server_cnx;
+    picoquic_cnx_t *to_client_cnx;
+    picoquic_cnx_t *to_server_cnx;
 } sample_proxy_ctx_t;
 
 /*
@@ -79,10 +79,10 @@ typedef struct st_sample_proxy_ctx_t {
  * context, and vice verse.
  */
 sample_proxy_ctx_t global_proxy_ctx = {
-    .client_stream_id = 0,
-    .server_stream_id = 0,
-    .client_cnx = NULL,
-    .server_cnx = NULL,
+    .to_client_stream_id = 0,
+    .to_server_stream_id = 0,
+    .to_client_cnx = NULL,
+    .to_server_cnx = NULL,
 };
 
 void print_cnx_info(picoquic_cnx_t* cnx, uint64_t stream_id) {
@@ -94,7 +94,7 @@ void print_cnx_info(picoquic_cnx_t* cnx, uint64_t stream_id) {
     if (peer_addr->sa_family == AF_INET) {
         struct sockaddr_in* s4 = (struct sockaddr_in *)peer_addr;
         uint8_t* addr = (uint8_t *)&s4->sin_addr;
-        printf("Proxy received connection from %d.%d.%d.%d:%d (stream ID: %lu)\n",
+        printf("%d.%d.%d.%d:%d (stream ID: %lu)\n",
             addr[0], addr[1], addr[2], addr[3],
             ntohs(s4->sin_port),
             stream_id);
@@ -126,14 +126,17 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     // client that wants to be proxied to the server.
     if (callback_ctx == NULL || callback_ctx == picoquic_get_default_callback_context(picoquic_get_quic_ctx(cnx))) {
         // Create context for the connection management
-        if (global_proxy_ctx.server_cnx != NULL) {
+        if (global_proxy_ctx.to_client_cnx != NULL) {
             // Unknown new connection; warn of update
             fprintf(stderr, "Unknown new connection\n");
         }
         proxy_ctx = &global_proxy_ctx;
-        global_proxy_ctx.server_cnx = cnx;
+        global_proxy_ctx.to_client_cnx = cnx;
         picoquic_set_callback(cnx, sample_proxy_callback, proxy_ctx);
-        print_cnx_info(cnx, stream_id);
+        if (DEBUG) {
+            printf("[DEBUG] New connection from: ");
+            print_cnx_info(cnx, stream_id);
+        }
     } else {
         if (callback_ctx != &global_proxy_ctx) {
             fprintf(stderr, "Unknown connection -- should have had global_proxy_ctx\n");
@@ -147,7 +150,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         // Data arrival on stream, maybe with fin mark
         if (stream_ctx == NULL) {
             // Streams for the client were already set up; should never be NULL in this CB
-            proxy_ctx->server_stream_id = stream_id;
+            proxy_ctx->to_client_stream_id = stream_id;
             stream_ctx = (sample_proxy_stream_ctx_t*)malloc(sizeof(sample_proxy_stream_ctx_t));
             if (stream_ctx == NULL) {
                 (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
@@ -155,7 +158,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 return(-1);
             }
             stream_ctx->stream_id = stream_id;
-            stream_ctx->stream_type = SERVER;
+            stream_ctx->stream_type = TO_CLIENT;
             if (picoquic_set_app_stream_ctx(cnx, stream_id, stream_ctx) != 0) {
                 fprintf(stderr, "Failed to set context for client-side stream\n");
                 (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
@@ -164,23 +167,29 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         }
 
         // Read and forward data directly
-        if (stream_ctx->stream_type == SERVER) {
-            ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.client_cnx,
-                                                  global_proxy_ctx.client_stream_id,
-                                                  bytes, length, // Directly forward the bytes
-                                                  fin_or_event == picoquic_callback_stream_fin,
-                                                  (void *)stream_ctx);
-            if (DEBUG) {
-                printf("[DEBUG] Forwarded %lu bytes from server to client (code: %d)\n", length, ret);
+        if (stream_ctx->stream_type == TO_SERVER) {
+            ret = picoquic_add_to_stream(global_proxy_ctx.to_client_cnx,
+                                         global_proxy_ctx.to_client_stream_id,
+                                         bytes, length, // Directly forward the bytes
+                                         fin_or_event == picoquic_callback_stream_fin);
+            if (DEBUG && ret == 0) {
+                printf("[DEBUG] Forwarded %lu bytes from server to client.\n", length);
+                printf("[DEBUG] Forwarded to: ");
+                print_cnx_info(global_proxy_ctx.to_client_cnx, global_proxy_ctx.to_client_stream_id);
+                printf("[DEBUG] Received from: ");
+                print_cnx_info(cnx, stream_id);
             }
         } else {
-            ret = picoquic_add_to_stream_with_ctx(global_proxy_ctx.server_cnx,
-                                                  global_proxy_ctx.server_stream_id,
-                                                  bytes, length, // Directly forward the bytes
-                                                  fin_or_event == picoquic_callback_stream_fin,
-                                                  (void *)stream_ctx);
-            if (DEBUG) {
-                printf("[DEBUG] Forwarded %lu bytes from client to server (code: %d)\n", length, ret);
+            ret = picoquic_add_to_stream(global_proxy_ctx.to_server_cnx,
+                                         global_proxy_ctx.to_server_stream_id,
+                                         bytes, length, // Directly forward the bytes
+                                         fin_or_event == picoquic_callback_stream_fin);
+            if (DEBUG && ret == 0) {
+                printf("[DEBUG] Forwarded %lu bytes from client to server.\n", length);
+                printf("[DEBUG] Forwarded to: ");
+                print_cnx_info(global_proxy_ctx.to_server_cnx, global_proxy_ctx.to_server_stream_id);
+                printf("[DEBUG] Received from: ");
+                print_cnx_info(cnx, stream_id);
             }
         }
         if (ret != 0) {
@@ -197,20 +206,22 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_ready:
         printf("Connection ready for TX/RX\n");
         break;
+    case picoquic_callback_prepare_to_send:
+        printf("Connection ready for sending data\n");
+        break;
     case picoquic_callback_close:
     case picoquic_callback_stream_reset:
     case picoquic_callback_stateless_reset:
     case picoquic_callback_stop_sending:
     case picoquic_callback_application_close:
-        printf("Connection closed or reset by %s\n",
-               stream_ctx->stream_type == CLIENT ? "client" : "server");
+        printf("Connection closed or reset: ");
+        print_cnx_info(cnx, stream_id);
         if (stream_ctx != NULL) {
             free(stream_ctx);
         }
         break;
 
     case picoquic_callback_stream_gap:
-    case picoquic_callback_prepare_to_send:
     case picoquic_callback_datagram:
     case picoquic_callback_version_negotiation:
     case picoquic_callback_request_alpn_list:
@@ -228,7 +239,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_app_wakeup:
         // In future: receive and forward reset, stop_sending, close, possibly other events
         printf("Received event %d on connection to %s\n",
-               fin_or_event, stream_ctx->stream_type == CLIENT ? "client" : "server");
+               fin_or_event, stream_ctx->stream_type == TO_CLIENT ? "client" : "server");
         break;
     }
     return 0;
@@ -240,8 +251,8 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
  *
  * In future: this could be done when the connection from the client is received.
  */
-int sample_proxy_init(int server_port, const char* server_ip_text, const char* cca,
-                      picoquic_quic_t **quic) {
+int sample_proxy_init_to_server(int server_port, const char* server_ip_text, const char* cca,
+                                picoquic_quic_t **quic) {
     int ret = 0;
     struct sockaddr_storage server_address;
     picoquic_cnx_t* cnx = NULL;
@@ -302,7 +313,7 @@ int sample_proxy_init(int server_port, const char* server_ip_text, const char* c
     }
     memset(stream_ctx, 0, sizeof(sample_proxy_stream_ctx_t));
     stream_ctx->stream_id = picoquic_get_next_local_stream_id(cnx, 0);
-    stream_ctx->stream_type = CLIENT;
+    stream_ctx->stream_type = TO_SERVER;
 
     // Set stream active
     ret = picoquic_mark_active_stream(cnx, stream_ctx->stream_id, 1, stream_ctx);
@@ -315,8 +326,8 @@ int sample_proxy_init(int server_port, const char* server_ip_text, const char* c
     printf("Stream to backend server initialized with ID %lu\n", stream_ctx->stream_id);
 
     // Set global proxy data
-    global_proxy_ctx.client_cnx = cnx;
-    global_proxy_ctx.client_stream_id = stream_ctx->stream_id;
+    global_proxy_ctx.to_server_cnx = cnx;
+    global_proxy_ctx.to_server_stream_id = stream_ctx->stream_id;
     return 0;
 }
 
@@ -370,7 +381,7 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
         picoquic_set_key_log_file_from_env(quic);
 
         // Set up connection to backend server
-        ret = sample_proxy_init(server_port, server_ip_text, cca, &quic_server);
+        ret = sample_proxy_init_to_server(server_port, server_ip_text, cca, &quic_server);
     }
 
     if (ret == 0) {
