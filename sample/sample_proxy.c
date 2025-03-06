@@ -370,11 +370,12 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     int ret = 0;
-    picoquic_quic_t* quic = NULL;
+    picoquic_quic_t* quic_to_client = NULL;
     picoquic_quic_t* quic_to_server = NULL;
     uint64_t current_time = 0;
     pthread_t to_client_thread, to_server_thread;
-    sample_proxy_args_t args;
+    sample_proxy_args_t to_client_args;
+    sample_proxy_args_t to_server_args;
 
     printf("Starting Picoquic Sample proxy on port %d\n", proxy_port);
     printf("Proxying to %s:%d\n", server_ip_text, server_port);
@@ -383,30 +384,30 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     current_time = picoquic_current_time();
 
     /* Create QUIC context with callback */
-    quic = picoquic_create(1, // Max connections this context can handle (one in each direction)
-                           proxy_cert, proxy_key,
-                           NULL, // no root cert
-                           PICOQUIC_SAMPLE_ALPN, // no add'l protocol negotiation
-                           sample_proxy_callback, // packet loop
-                           NULL, // no default context
-                           NULL, NULL, // no custom connection IDs
-                           NULL, // no reset size
-                           current_time,
-                           NULL, // no simulated time
-                           NULL, NULL, 0 // no ticket encryption
-                           );
+    quic_to_client = picoquic_create(1, // Max connections this context can handle (one in each direction)
+                                     proxy_cert, proxy_key,
+                                     NULL, // no root cert
+                                     PICOQUIC_SAMPLE_ALPN, // no add'l protocol negotiation
+                                     sample_proxy_callback, // packet loop
+                                     NULL, // no default context
+                                     NULL, NULL, // no custom connection IDs
+                                     NULL, // no reset size
+                                     current_time,
+                                     NULL, // no simulated time
+                                     NULL, NULL, 0 // no ticket encryption
+                                     );
 
-    if (quic == NULL) {
+    if (quic_to_client == NULL) {
         fprintf(stderr, "Could not create quic context for accepting incoming connections\n");
         ret = -1;
     }
     else {
-        picoquic_set_cookie_mode(quic, 2);
-        picoquic_set_default_congestion_algorithm_by_name(quic, cca);
+        picoquic_set_cookie_mode(quic_to_client, 2);
+        picoquic_set_default_congestion_algorithm_by_name(quic_to_client, cca);
         // Avoid logging by default for performance
         // picoquic_set_qlog(quic, qlog_dir);
-        picoquic_set_log_level(quic, 1);
-        picoquic_set_key_log_file_from_env(quic);
+        picoquic_set_log_level(quic_to_client, 1);
+        picoquic_set_key_log_file_from_env(quic_to_client);
 
         // Set up connection to backend server
         ret = sample_proxy_init_to_server(server_port, server_ip_text, cca, &quic_to_server);
@@ -415,11 +416,12 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
 
     // Start packet loops
     if (ret == 0) {
-        args.proxy_port = proxy_port;
-        args.quic = quic;
-        pthread_create(&to_client_thread, NULL, to_client_func, (void *)&args);
-        args.quic = quic_to_server;
-        pthread_create(&to_server_thread, NULL, to_server_func, (void *)&args);
+        to_server_args.proxy_port = proxy_port;
+        to_server_args.quic = quic_to_server;
+        pthread_create(&to_server_thread, NULL, to_server_func, (void *)&to_server_args);
+        to_client_args.proxy_port = proxy_port;
+        to_client_args.quic = quic_to_client;
+        pthread_create(&to_client_thread, NULL, to_client_func, (void *)&to_client_args);
     }
 
     pthread_join(to_client_thread, NULL);
@@ -429,8 +431,8 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     printf("Proxy exit, ret = %d\n", ret);
 
     /* Clean up */
-    if (quic != NULL) {
-        picoquic_free(quic);
+    if (quic_to_client != NULL) {
+        picoquic_free(quic_to_client);
     }
     if (quic_to_server != NULL) {
         picoquic_free(quic_to_server);
