@@ -191,10 +191,10 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                                          fin_or_event == picoquic_callback_stream_fin);
             if (DEBUG && ret == 0) {
                 printf("[DEBUG] Forwarded %lu bytes from server to client.\n", length);
-                printf("[DEBUG] Forwarded to: ");
-                print_cnx_info(global_proxy_ctx.to_client_cnx, global_proxy_ctx.to_client_stream_id);
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
+                printf("[DEBUG] Forwarded to: ");
+                print_cnx_info(global_proxy_ctx.to_client_cnx, global_proxy_ctx.to_client_stream_id);
             }
         } else if (stream_ctx->stream_type == TO_CLIENT) {
             ret = picoquic_add_to_stream(global_proxy_ctx.to_server_cnx,
@@ -203,10 +203,10 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                                          fin_or_event == picoquic_callback_stream_fin);
             if (DEBUG && ret == 0) {
                 printf("[DEBUG] Forwarded %lu bytes from client to server.\n", length);
-                printf("[DEBUG] Forwarded to: ");
-                print_cnx_info(global_proxy_ctx.to_server_cnx, global_proxy_ctx.to_server_stream_id);
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
+                printf("[DEBUG] Forwarded to: ");
+                print_cnx_info(global_proxy_ctx.to_server_cnx, global_proxy_ctx.to_server_stream_id);
             }
         } else {
             assert(0);
@@ -273,14 +273,31 @@ int sample_proxy_callback_to_server(picoquic_cnx_t* cnx,
     picoquic_call_back_event_t fin_or_event, void* callback_ctx, void* v_stream_ctx)
 {
     sample_proxy_stream_ctx_t* stream_ctx = (sample_proxy_stream_ctx_t *)v_stream_ctx;
+    int ret;
     assert(callback_ctx != NULL);
     if (fin_or_event == picoquic_callback_stream_fin || fin_or_event == picoquic_callback_stream_data) {
-        assert(stream_ctx != NULL);
+        if (stream_ctx == NULL) {
+            // May need to repopulate stream context
+            stream_ctx = (sample_proxy_stream_ctx_t *)malloc(sizeof(sample_proxy_stream_ctx_t));
+            stream_ctx->stream_id = stream_id;
+            stream_ctx->stream_type = TO_SERVER;
+            ret = picoquic_set_app_stream_ctx(cnx, stream_ctx->stream_id, stream_ctx);
+            if (ret != 0) {
+                fprintf(stderr, "Error %d, cannot set stream context", ret);
+                free(stream_ctx);
+                return -1;
+            }
+            if (DEBUG) {
+                printf("[DEBUG] New stream (id: %lu) from backend server\n", stream_id);
+            }
+        }
     }
+    assert(global_proxy_ctx.to_server_cnx == cnx);
+    assert(global_proxy_ctx.to_server_stream_id == stream_id);
     if (stream_ctx != NULL) {
         assert(stream_ctx->stream_type == TO_SERVER);
     }
-    return sample_proxy_callback(cnx, stream_id, bytes, length, fin_or_event, callback_ctx, v_stream_ctx);
+    return sample_proxy_callback(cnx, stream_id, bytes, length, fin_or_event, callback_ctx, (void *)stream_ctx);
 }
 
 int sample_proxy_callback_to_client(picoquic_cnx_t* cnx,
