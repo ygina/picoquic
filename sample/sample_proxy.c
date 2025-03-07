@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <assert.h>
 #include <picoquic.h>
 #include <picosocks.h>
 #include <picoquic_utils.h>
@@ -26,6 +27,12 @@
 #include "picoquic_packet_loop.h"
 #include "picoquic_internal.h"
 
+int sample_proxy_callback_to_server(picoquic_cnx_t* cnx,
+    uint64_t stream_id, uint8_t* bytes, size_t length,
+    picoquic_call_back_event_t fin_or_event, void* callback_ctx, void* v_stream_ctx);
+int sample_proxy_callback_to_client(picoquic_cnx_t* cnx,
+    uint64_t stream_id, uint8_t* bytes, size_t length,
+    picoquic_call_back_event_t fin_or_event, void* callback_ctx, void* v_stream_ctx);
 /*
  * Enable debug print statements.
  */
@@ -141,7 +148,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         }
         proxy_ctx = &global_proxy_ctx;
         global_proxy_ctx.to_client_cnx = cnx;
-        picoquic_set_callback(cnx, sample_proxy_callback, proxy_ctx);
+        picoquic_set_callback(cnx, sample_proxy_callback_to_client, proxy_ctx);
         if (DEBUG) {
             printf("[DEBUG] New connection from: ");
             print_cnx_info(cnx, stream_id);
@@ -173,6 +180,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
                 return(-1);
             }
+            printf("Client stream initialized with ID %lu\n", stream_id);
         }
 
         // Read and forward data directly
@@ -188,7 +196,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
             }
-        } else {
+        } else if (stream_ctx->stream_type == TO_CLIENT) {
             ret = picoquic_add_to_stream(global_proxy_ctx.to_server_cnx,
                                          global_proxy_ctx.to_server_stream_id,
                                          bytes, length, // Directly forward the bytes
@@ -200,6 +208,8 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
             }
+        } else {
+            assert(0);
         }
         if (ret != 0) {
             // Internal error
@@ -257,6 +267,35 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     return 0;
 }
 
+
+int sample_proxy_callback_to_server(picoquic_cnx_t* cnx,
+    uint64_t stream_id, uint8_t* bytes, size_t length,
+    picoquic_call_back_event_t fin_or_event, void* callback_ctx, void* v_stream_ctx)
+{
+    sample_proxy_stream_ctx_t* stream_ctx = (sample_proxy_stream_ctx_t *)v_stream_ctx;
+    assert(callback_ctx != NULL);
+    if (fin_or_event == picoquic_callback_stream_fin || fin_or_event == picoquic_callback_stream_data) {
+        assert(stream_ctx != NULL);
+    }
+    if (stream_ctx != NULL) {
+        assert(stream_ctx->stream_type == TO_SERVER);
+    }
+    return sample_proxy_callback(cnx, stream_id, bytes, length, fin_or_event, callback_ctx, v_stream_ctx);
+}
+
+int sample_proxy_callback_to_client(picoquic_cnx_t* cnx,
+    uint64_t stream_id, uint8_t* bytes, size_t length,
+    picoquic_call_back_event_t fin_or_event, void* callback_ctx, void* v_stream_ctx)
+{
+    sample_proxy_stream_ctx_t* stream_ctx = (sample_proxy_stream_ctx_t *)v_stream_ctx;
+    assert(callback_ctx == NULL || global_proxy_ctx.to_client_cnx == cnx);
+    assert(stream_ctx == NULL || global_proxy_ctx.to_client_stream_id == stream_id);
+    if (stream_ctx != NULL) {
+        assert(stream_ctx->stream_type == TO_CLIENT);
+    }
+    return sample_proxy_callback(cnx, stream_id, bytes, length, fin_or_event, callback_ctx, v_stream_ctx);
+}
+
 /*
  * Initialize a long-lived QUIC connection to the backend server.
  * Populate the connection with a single stream.
@@ -301,7 +340,7 @@ int sample_proxy_init_to_server(int server_port, const char* server_ip_text, con
     }
 
     // Initialize callback
-    picoquic_set_callback(cnx, sample_proxy_callback, &global_proxy_ctx);
+    picoquic_set_callback(cnx, sample_proxy_callback_to_server, &global_proxy_ctx);
     ret = picoquic_start_client_cnx(cnx);
     if (ret < 0) {
         fprintf(stderr, "Could not activate connection to backend server\n");
@@ -388,7 +427,7 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
                                      proxy_cert, proxy_key,
                                      NULL, // no root cert
                                      PICOQUIC_SAMPLE_ALPN, // no add'l protocol negotiation
-                                     sample_proxy_callback, // packet loop
+                                     sample_proxy_callback_to_client, // packet loop
                                      NULL, // no default context
                                      NULL, NULL, // no custom connection IDs
                                      NULL, // no reset size
