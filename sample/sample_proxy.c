@@ -36,7 +36,7 @@ int sample_proxy_callback_to_client(picoquic_cnx_t* cnx,
 /*
  * Enable debug print statements.
  */
-int DEBUG = 1;
+int DEBUG = 0;
 
 /*
  * Args for thread functions.
