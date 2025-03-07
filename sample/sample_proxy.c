@@ -36,7 +36,7 @@ int sample_proxy_callback_to_client(picoquic_cnx_t* cnx,
 /*
  * Enable debug print statements.
  */
-int DEBUG = 0;
+int DEBUG = 1;
 
 /*
  * Args for thread functions.
@@ -190,11 +190,13 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                                          bytes, length, // Directly forward the bytes
                                          fin_or_event == picoquic_callback_stream_fin);
             if (DEBUG && ret == 0) {
-                printf("[DEBUG] Forwarded %lu bytes from server to client.\n", length);
+                printf("[DEBUG] Forwarded %lu bytes from server to client (FIN: %s).\n", length,
+                       fin_or_event == picoquic_callback_stream_fin ? "true" : "false");
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
                 printf("[DEBUG] Forwarded to: ");
                 print_cnx_info(global_proxy_ctx.to_client_cnx, global_proxy_ctx.to_client_stream_id);
+                printf("[DEBUG] Time: %lu\n", picoquic_current_time());
             }
         } else if (stream_ctx->stream_type == TO_CLIENT) {
             ret = picoquic_add_to_stream(global_proxy_ctx.to_server_cnx,
@@ -202,11 +204,13 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                                          bytes, length, // Directly forward the bytes
                                          fin_or_event == picoquic_callback_stream_fin);
             if (DEBUG && ret == 0) {
-                printf("[DEBUG] Forwarded %lu bytes from client to server.\n", length);
+                printf("[DEBUG] Forwarded %lu bytes from client to server (FIN: %s).\n", length,
+                       fin_or_event == picoquic_callback_stream_fin ? "true" : "false");
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
                 printf("[DEBUG] Forwarded to: ");
                 print_cnx_info(global_proxy_ctx.to_server_cnx, global_proxy_ctx.to_server_stream_id);
+                printf("[DEBUG] Time: %lu\n", picoquic_current_time());
             }
         } else {
             assert(0);
@@ -222,14 +226,23 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_almost_ready:
         printf("Connection almost ready for TX/RX: ");
         print_cnx_info(cnx, stream_id);
+        if (DEBUG) {
+            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+        }
         break;
     case picoquic_callback_ready:
         printf("Connection ready for TX/RX: ");
         print_cnx_info(cnx, stream_id);
+        if (DEBUG) {
+            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+        }
         break;
     case picoquic_callback_prepare_to_send:
         printf("Connection ready for sending data: ");
         print_cnx_info(cnx, stream_id);
+        if (DEBUG) {
+            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+        }
         break;
     case picoquic_callback_close:
     case picoquic_callback_application_close:
@@ -237,6 +250,9 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         print_cnx_info(cnx, stream_id);
         if (stream_ctx != NULL) {
             free(stream_ctx);
+        }
+        if (DEBUG) {
+            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
         }
         break;
     case picoquic_callback_stream_reset:
@@ -246,6 +262,9 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         print_cnx_info(cnx, stream_id);
         if (stream_ctx != NULL) {
             free(stream_ctx);
+        }
+        if (DEBUG) {
+            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
         }
         break;
 
