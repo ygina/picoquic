@@ -232,11 +232,17 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         print_cnx_info(cnx, stream_id);
         break;
     case picoquic_callback_close:
+    case picoquic_callback_application_close:
+        printf("Connection closed: ");
+        print_cnx_info(cnx, stream_id);
+        if (stream_ctx != NULL) {
+            free(stream_ctx);
+        }
+        break;
     case picoquic_callback_stream_reset:
     case picoquic_callback_stateless_reset:
     case picoquic_callback_stop_sending:
-    case picoquic_callback_application_close:
-        printf("Connection closed or reset: ");
+        printf("Stream reset or stop sending: ");
         print_cnx_info(cnx, stream_id);
         if (stream_ctx != NULL) {
             free(stream_ctx);
