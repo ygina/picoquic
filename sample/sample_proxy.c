@@ -69,6 +69,15 @@ typedef struct st_sample_proxy_stream_ctx_t {
     sample_conn_type_t stream_type;
 } sample_proxy_stream_ctx_t;
 
+// For buffering data before marking stream as active
+typedef struct st_sample_proxy_buf_t {
+    void           *data;
+    size_t          data_length;
+    size_t          data_capacity;
+    int             is_fin;
+    pthread_mutex_t lock;
+} sample_proxy_buf_t;
+
 /*
  * Per-pair context, where a "pair" is a pair of QUIC connections
  * -- one "client-side" and one "server-side" -- that the proxy is
@@ -83,7 +92,30 @@ typedef struct st_sample_proxy_ctx_t {
     // usable for sending data
     picoquic_cnx_t *to_client_cnx;
     picoquic_cnx_t *to_server_cnx;
+    // Stream context for the client connection
+    sample_proxy_stream_ctx_t *to_client_stream_ctx;
+
+    // Data for forwarding
+    sample_proxy_buf_t to_client_buf;
 } sample_proxy_ctx_t;
+
+int INITIAL_CAPACITY = 10000;
+
+int init_buf(sample_proxy_buf_t* buf) {
+    if (pthread_mutex_init(&buf->lock, NULL) != 0) {
+        printf("Mutex initialization failed\n");
+        return -1;
+    }
+    buf->data = malloc(INITIAL_CAPACITY);
+    if (buf->data == NULL) {
+        printf("Failed to allocate memory for buffer\n");
+        return -1;
+    }
+    buf->data_length = 0;
+    buf->data_capacity = INITIAL_CAPACITY;
+    buf->is_fin = 0;
+    return 0;
+}
 
 /*
  * A global variable to manage per-proxy context, limiting the proxy to
@@ -181,17 +213,38 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
                 return(-1);
             }
+            proxy_ctx->to_client_stream_ctx = stream_ctx;
             printf("Client stream initialized with ID %lu\n", stream_id);
         }
 
         // Read and forward data directly
         if (stream_ctx->stream_type == TO_SERVER) {
-            ret = picoquic_add_to_stream(global_proxy_ctx.to_client_cnx,
-                                         global_proxy_ctx.to_client_stream_id,
-                                         bytes, length, // Directly forward the bytes
-                                         fin_or_event == picoquic_callback_stream_fin);
+            if (global_proxy_ctx.to_client_buf.data_length + length >
+                global_proxy_ctx.to_client_buf.data_capacity) {
+                pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
+                global_proxy_ctx.to_client_buf.data_capacity *= 2;
+                if (DEBUG) {
+                    printf("[DEBUG] Reallocating buffer to %lu bytes\n",
+                           global_proxy_ctx.to_client_buf.data_capacity);
+                }
+                global_proxy_ctx.to_client_buf.data = realloc(global_proxy_ctx.to_client_buf.data, global_proxy_ctx.to_client_buf.data_capacity);
+                pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
+            }
+            pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
+            memcpy(global_proxy_ctx.to_client_buf.data + global_proxy_ctx.to_client_buf.data_length, bytes, length);
+            global_proxy_ctx.to_client_buf.data_length += length;
+            if (fin_or_event == picoquic_callback_stream_fin) {
+                global_proxy_ctx.to_client_buf.is_fin = 1;
+            }
+            // Data needs to be sent
+            if (picoquic_mark_active_stream(global_proxy_ctx.to_client_cnx,
+                                        global_proxy_ctx.to_client_stream_id, 1,
+                                        global_proxy_ctx.to_client_stream_ctx) != 0) {
+                fprintf(stderr, "Failed to mark client stream active\n");
+            }
+            pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
             if (DEBUG && ret == 0) {
-                printf("[DEBUG] Forwarded %lu bytes from server to client (FIN: %s).\n", length,
+                printf("[DEBUG] Appended %lu bytes from server to client buffer (FIN: %s).\n", length,
                        fin_or_event == picoquic_callback_stream_fin ? "true" : "false");
                 printf("[DEBUG] Received from: ");
                 print_cnx_info(cnx, stream_id);
@@ -218,7 +271,8 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         }
         if (ret != 0) {
             // Internal error
-            printf("Error forwarding data: %d\n", ret);
+            printf("Error forwarding data: %d from: ", ret);
+            print_cnx_info(cnx, stream_id);
             (void) picoquic_reset_stream(cnx, stream_id, PICOQUIC_SAMPLE_INTERNAL_ERROR);
             return(-1);
         }
@@ -239,11 +293,39 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         }
         break;
     case picoquic_callback_prepare_to_send:
-        printf("Connection ready for sending data: ");
-        print_cnx_info(cnx, stream_id);
+        size_t   to_send = 0;
+        uint8_t* buffer;
+        int      is_fin = 0;
         if (DEBUG) {
+            printf("Connection ready for sending data: ");
+            print_cnx_info(cnx, stream_id);
             printf("[DEBUG] Time: %lu\n", picoquic_current_time());
         }
+        pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
+        // Bytes to send
+        to_send = global_proxy_ctx.to_client_buf.data_length;
+        is_fin = global_proxy_ctx.to_client_buf.is_fin;
+        if (to_send > length) {
+            to_send = length;
+            is_fin = 0;
+        }
+
+        buffer = picoquic_provide_stream_data_buffer(bytes, to_send, is_fin,
+                                                     global_proxy_ctx.to_client_buf.data_length > to_send);
+        if (buffer != NULL) {
+            memcpy(buffer, global_proxy_ctx.to_client_buf.data, to_send);
+        }
+        if (DEBUG) {
+            printf("[DEBUG] Sending %lu bytes to client (FIN: %s)\n", to_send, is_fin ? "true" : "false");
+            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+        }
+        // Update data
+        global_proxy_ctx.to_client_buf.data_length -= to_send;
+        if (global_proxy_ctx.to_client_buf.data_length > 0) {
+            memmove(global_proxy_ctx.to_client_buf.data, global_proxy_ctx.to_client_buf.data + to_send,
+                    global_proxy_ctx.to_client_buf.data_length);
+        }
+        pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
         break;
     case picoquic_callback_close:
     case picoquic_callback_application_close:
@@ -470,6 +552,12 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     /* Create the QUIC context for the server */
     current_time = picoquic_current_time();
 
+    ret = init_buf(&global_proxy_ctx.to_client_buf);
+    if (ret != 0) {
+        fprintf(stderr, "Failed to initialize buffer for client stream\n");
+        return ret;
+    }
+
     /* Create QUIC context with callback */
     quic_to_client = picoquic_create(1, // Max connections this context can handle (one in each direction)
                                      proxy_cert, proxy_key,
@@ -524,6 +612,6 @@ int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* pr
     if (quic_to_server != NULL) {
         picoquic_free(quic_to_server);
     }
-
+    pthread_mutex_destroy(&global_proxy_ctx.to_client_buf.lock);
     return ret;
 }
