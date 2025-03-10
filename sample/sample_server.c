@@ -332,7 +332,7 @@ int picoquic_sample_server(int server_port, int nbytes, const char* cca,
     /* Start: start the QUIC process with cert and key files */
     int ret = 0;
     picoquic_quic_t* quic = NULL;
-    char const* qlog_dir = PICOQUIC_SAMPLE_SERVER_QLOG_DIR;
+    // char const* qlog_dir = PICOQUIC_SAMPLE_SERVER_QLOG_DIR;
     uint64_t current_time = 0;
     sample_server_ctx_t default_context = { 0 };
 
