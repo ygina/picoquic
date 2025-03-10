@@ -36,7 +36,7 @@ int sample_proxy_callback_to_client(picoquic_cnx_t* cnx,
 /*
  * Enable debug print statements.
  */
-int DEBUG = 1;
+int DEBUG = 0;
 
 /*
  * Args for thread functions.
@@ -181,7 +181,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         proxy_ctx = &global_proxy_ctx;
         global_proxy_ctx.to_client_cnx = cnx;
         picoquic_set_callback(cnx, sample_proxy_callback_to_client, proxy_ctx);
-        picoquic_enable_keep_alive(cnx, 1000); // keep-alive at 1ms
+        picoquic_enable_keep_alive(cnx, 10000); // keep-alive at 1ms
         if (DEBUG) {
             printf("[DEBUG] New connection from: ");
             print_cnx_info(cnx, stream_id);
@@ -297,7 +297,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         uint8_t* buffer;
         int      is_fin = 0;
         if (DEBUG) {
-            printf("Connection ready for sending data: ");
+            printf("[DEBUG] Connection ready for sending data: ");
             print_cnx_info(cnx, stream_id);
             printf("[DEBUG] Time: %lu\n", picoquic_current_time());
         }
@@ -504,11 +504,10 @@ int sample_proxy_init_to_server(int server_port, const char* server_ip_text, con
     // Set global proxy data
     global_proxy_ctx.to_server_cnx = cnx;
     global_proxy_ctx.to_server_stream_id = stream_ctx->stream_id;
-    // Enable keep-alives at 1ms
+    // Enable keep-alives at 10ms
     // The connections aren't waking up to send data unless they receive data.
     // We can force them to wake up by sending a keep-alive.
-    picoquic_enable_keep_alive(cnx, 1000);
-
+    picoquic_enable_keep_alive(cnx, 10000);
     return 0;
 }
 
