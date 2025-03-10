@@ -56,6 +56,9 @@ int picoquic_sample_background(char const* server_name, int server_port, char co
 int picoquic_sample_server(int server_port, int nbytes, const char *cca,
                            const char* pem_cert, const char* pem_key, const char * default_dir);
 
+int picoquic_sample_proxy(int proxy_port, const char* proxy_cert, const char* proxy_key,
+                          const char* cca, int server_port, const char *server_ip_text);
+
 #ifdef __cplusplus
 }
 #endif
