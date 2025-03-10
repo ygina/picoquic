@@ -267,7 +267,7 @@ IF (WITH_MBEDTLS)
         message(STATUS "mbedtls/include: ${MBEDTLS_INCLUDE_DIRS}")
         message(STATUS "mbedtls libraries: ${MBEDTLS_LIBRARIES}")
         list(APPEND PICOQUIC_COMPILE_DEFINITIONS PICOQUIC_WITH_MBEDTLS)
-        list(APPEND PICOQUIC_LIBRARY_FILES
+        list(APPEND PICOQUIC_LIBRARY_FILES 
                     picoquic_mbedtls/ptls_mbedtls.c
                     picoquic_mbedtls/ptls_mbedtls_sign.c)
     ELSE ()
@@ -445,8 +445,7 @@ if(BUILD_TESTING AND picoquic_BUILD_TESTS)
         sample/sample.c
         sample/sample_background.c
         sample/sample_client.c
-        sample/sample_server.c
-        sample/sample_proxy.c)
+        sample/sample_server.c)
     target_link_libraries(picoquic_sample PRIVATE picoquic-log picoquic-core)
     target_include_directories(picoquic_sample PRIVATE loglib picoquic ../../quacker/include ../../sidekick_utils/include)
     set_picoquic_compile_settings(picoquic_sample)
