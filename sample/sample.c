@@ -54,7 +54,6 @@ static void usage(char const * sample_name)
     fprintf(stderr, "    %s background server_name port folder\n", sample_name);
     fprintf(stderr, "or :\n");
     fprintf(stderr, "    %s server port cert_file private_key_file folder nbytes cca\n", sample_name);
-    fprintf(stderr, "    %s proxy proxy_port proxy_cert proxy_key cca backend_server_port backend_server_ip\n", sample_name);
     exit(1);
 }
 
@@ -131,17 +130,6 @@ int main(int argc, char** argv)
             int server_port = get_port(argv[0], argv[2]);
             int nbytes = get_nbytes(argv[0], argv[6]);
             exit_code = picoquic_sample_server(server_port, nbytes, argv[7], argv[3], argv[4], argv[5]);
-        }
-    }
-    else if (strcmp(argv[1], "proxy") == 0) {
-        if (argc != 8) {
-            usage(argv[0]);
-        }
-        else {
-            // Usage: ./sample proxy proxy_port, proxy_cert, proxy_key, cca, server_port, server_ip
-            int proxy_port = get_port(argv[0], argv[2]);
-            int server_port = get_port(argv[0], argv[6]);
-            exit_code = picoquic_sample_proxy(proxy_port, argv[3], argv[4], argv[5], server_port, argv[7]);
         }
     }
     else
