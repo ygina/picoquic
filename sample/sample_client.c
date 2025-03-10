@@ -459,7 +459,7 @@ static int sample_client_init(char const* server_name, int server_port, char con
                 fprintf(stderr, "No token file present. Will create one as <%s>.\n", token_store_filename);
             }
 
-            fprintf(stdout, "Set CCA: %s", cca);
+            fprintf(stdout, "Set CCA: %s\n", cca);
             picoquic_set_default_congestion_algorithm_by_name(*quic, cca);
 
             picoquic_set_key_log_file_from_env(*quic);
