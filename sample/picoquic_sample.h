@@ -49,7 +49,7 @@ int picoquic_sample_client(char const* server_name, const char *cca,
                            int server_port, char const* default_dir,
     int nb_files, char const** file_names, int sidekick_ack_delay,
     int quacker, size_t threshold, uint32_t freq_pkts, uint64_t freq_ms,
-    char* target_addr);
+    char* target_addr, int riblt, int hint);
 
 int picoquic_sample_background(char const* server_name, int server_port, char const* default_dir);
 

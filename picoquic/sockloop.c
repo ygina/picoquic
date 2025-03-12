@@ -954,6 +954,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             uint64_t loop_time = current_time;
             size_t bytes_sent = 0;
             size_t nb_packets_sent = 0;
+            int sent_quack = 0;
 
             if (bytes_recv > 0) {
 #ifdef _WINDOWS
@@ -988,7 +989,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                 if (quic != NULL && quic->quacker != NULL) {
                     quack_id = sidekick_fixed_offset_to_id(received_buffer,
                         (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
-                    udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
+                    sent_quack = udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
                 }
 
                 if (loop_callback != NULL) {
@@ -1007,7 +1008,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             }
 
             if (quic != NULL && quic->quacker != NULL) {
-                udp_quacker_update_time(quic->quacker, loop_time / 1000);
+                sent_quack |= udp_quacker_update_time(quic->quacker, loop_time / 1000);
             }
 
             if (ret == PICOQUIC_NO_ERROR_SIMULATE_NAT) {
@@ -1191,6 +1192,18 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                 }
                 else {
                     break;
+                }
+            }
+
+            /* TODO: Send quacks with a hint based on estimated num missing */
+            int num_missing = 0;
+            if (quic != NULL && quic->quacker != NULL && num_missing > 0 && !sent_quack) {
+                if (quic->quacker_hint && quic->quacker_riblt) {
+                    udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing * 3);
+                } else if (quic->quacker_hint && !quic->quacker_riblt) {
+                    udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing);
+                } else {
+                    udp_quacker_send_quack(quic->quacker, loop_time / 1000);
                 }
             }
 
