@@ -739,6 +739,8 @@ typedef struct st_picoquic_quic_t {
 
     /* Management of sidekick functionality */
     void* quacker;
+    int quacker_riblt;
+    int quacker_hint;
 
 #ifdef BBRExperiment
     bbr_exp bbr_exp_flags;
