@@ -645,9 +645,19 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
         bytes_recv = -1;
         DBG_PRINTF("Error: select returns %d\n", ret_select);
     } else if (ret_select > 0) {
+        if (sidekick_fd != 0 && FD_ISSET(sidekick_fd, &readfds)) {
+            bytes_recv = recv(sidekick_fd, buffer, buffer_max, 0);
+            if (bytes_recv <= 0) {
+                DBG_PRINTF("Could not receive packet on sidekick socket= %d!\n",
+                    sidekick_fd);
+            } else {
+                *is_sidekick_event = 1;
+            }
+        }
         /* Check if the 'wake up' pipe is full. If it is, read the data on it,
          * set the is_wake_up_event flag, and ignore the other file descriptors. */
-        if (thread_ctx->wake_up_defined && FD_ISSET(thread_ctx->wake_up_pipe_fd[0], &readfds)) {
+        else if (thread_ctx->wake_up_defined && FD_ISSET(thread_ctx->wake_up_pipe_fd[0], &readfds))
+        {
             /* Something was written on the "wakeup" pipe. Read it. */
             uint8_t eventbuf[8];
             int pipe_recv;
@@ -657,15 +667,6 @@ int picoquic_packet_loop_select(picoquic_socket_ctx_t* s_ctx,
             }
             else {
                 *is_wake_up_event = 1;
-            }
-        }
-        else if (sidekick_fd != 0 && FD_ISSET(sidekick_fd, &readfds)) {
-            bytes_recv = recv(sidekick_fd, buffer, buffer_max, 0);
-            if (bytes_recv <= 0) {
-                DBG_PRINTF("Could not receive packet on sidekick socket= %d!\n",
-                    sidekick_fd);
-            } else {
-                *is_sidekick_event = 1;
             }
         }
         else
