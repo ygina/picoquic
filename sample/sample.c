@@ -108,8 +108,8 @@ int main(int argc, char** argv)
                 int freq_pkts = atoi(argv[8]);
                 int freq_ms = atoi(argv[9]);
                 char* target_addr = argv[10];
-                bool riblt = argv[11];
-                bool hint = argv[12];
+                bool riblt = atoi(argv[11]);
+                bool hint = atoi(argv[12]);
                 picoquic_sample_client(argv[2], argv[5], server_port, argv[4], nb_files, file_names, sidekick_ack_delay,
                     true, threshold, freq_pkts, freq_ms, target_addr, riblt, hint);
             }
