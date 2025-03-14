@@ -50,7 +50,7 @@
 static void usage(char const * sample_name)
 {
     fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "    %s client server_name port folder cca sidekick_ack_delay [threshold freq_pkts freq_ms target_addr riblt quack_hint]? *queried_file\n", sample_name);
+    fprintf(stderr, "    %s client server_name port folder cca logfile sidekick_ack_delay [threshold freq_pkts freq_ms target_addr riblt quack_hint]? *queried_file\n", sample_name);
     fprintf(stderr, "    %s background server_name port folder\n", sample_name);
     fprintf(stderr, "or :\n");
     fprintf(stderr, "    %s server port cert_file private_key_file folder nbytes cca\n", sample_name);
@@ -91,26 +91,26 @@ int main(int argc, char** argv)
         usage(argv[0]);
     }
     else if (strcmp(argv[1], "client") == 0) {
-        if (argc != 8 && argc != 14) {
+        if (argc != 9 && argc != 15) {
             usage(argv[0]);
         }
         else {
             int server_port = get_port(argv[0], argv[3]);
             int nb_files = 1;
             char const** file_names = (char const **)(argv + argc - nb_files);
-            int sidekick_ack_delay = atoi(argv[6]);
+            int sidekick_ack_delay = atoi(argv[7]);
 
-            if (argc == 8) {
-                picoquic_sample_client(argv[2], argv[5], server_port, argv[4], nb_files, file_names, sidekick_ack_delay,
+            if (argc == 9) {
+                picoquic_sample_client(argv[2], argv[5], argv[6], server_port, argv[4], nb_files, file_names, sidekick_ack_delay,
                     false, 0, 0, 0, "", false, false);
             } else {
-                int threshold = atoi(argv[7]);
-                int freq_pkts = atoi(argv[8]);
-                int freq_ms = atoi(argv[9]);
-                char* target_addr = argv[10];
-                bool riblt = atoi(argv[11]);
-                bool hint = atoi(argv[12]);
-                picoquic_sample_client(argv[2], argv[5], server_port, argv[4], nb_files, file_names, sidekick_ack_delay,
+                int threshold = atoi(argv[8]);
+                int freq_pkts = atoi(argv[9]);
+                int freq_ms = atoi(argv[10]);
+                char* target_addr = argv[11];
+                bool riblt = atoi(argv[12]);
+                bool hint = atoi(argv[13]);
+                picoquic_sample_client(argv[2], argv[5], argv[6], server_port, argv[4], nb_files, file_names, sidekick_ack_delay,
                     true, threshold, freq_pkts, freq_ms, target_addr, riblt, hint);
             }
         }
