@@ -551,7 +551,7 @@ int picoquic_sample_client(char const * server_name, char const * cca,
         &server_address, &quic, &cnx, &client_ctx);
 
     if (quacker) {
-        quic->quacker = udp_quacker_new(threshold, freq_pkts, freq_ms, target_addr, riblt);
+        quic->quacker = udp_quacker_new(threshold, freq_pkts, freq_ms, target_addr, riblt, 0);
         quic->quacker_riblt = riblt;
         quic->quacker_hint = hint;
     } else {
