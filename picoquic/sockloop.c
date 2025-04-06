@@ -849,6 +849,8 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     /* Initialize sidekick variables */
     uint32_t quack_id;
     uint8_t addr_key[ADDR_KEY_LEN];
+    uint64_t quacker_freq_us = 0;
+    uint64_t next_quack_time = current_time;
     uint64_t discovery_sent = current_time;
     int sidekick_fd = 0;
     int is_sidekick_event = 0;
@@ -871,6 +873,9 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             close(sidekick_fd);
             exit(EXIT_FAILURE);
         }
+
+        /* Get the frequency to wake up the packet loop */
+        quacker_freq_us = udp_quacker_freq_ms(quic->quacker) * 1000;
     }
 
     /* Wait for packets */
@@ -897,6 +902,15 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         if (!loop_immediate) {
             nb_loop_immediate = 1;
             delta_t = picoquic_get_next_wake_delay(quic, current_time, delay_max);
+            if (quacker_freq_us != 0) {
+                if (current_time >= next_quack_time) {
+                    delta_t = 0;
+                    next_quack_time = current_time + quacker_freq_us;
+                } else {
+                    delta_t = next_quack_time - current_time < delta_t ?
+                              next_quack_time - current_time : delta_t;
+                }
+            }
             if (options.do_time_check) {
                 packet_loop_time_check_arg_t time_check_arg;
                 time_check_arg.current_time = current_time;
@@ -990,7 +1004,10 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                 if (quic != NULL && quic->quacker != NULL) {
                     quack_id = sidekick_fixed_offset_to_id(received_buffer,
                         (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
-                    sent_quack = udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
+                    if (udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id)) {
+                        sent_quack = 1;
+                        next_quack_time = loop_time + quacker_freq_us;
+                    }
                 }
 
                 if (loop_callback != NULL) {
@@ -1009,7 +1026,10 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             }
 
             if (quic != NULL && quic->quacker != NULL) {
-                sent_quack |= udp_quacker_update_time(quic->quacker, loop_time / 1000);
+                if (udp_quacker_update_time(quic->quacker, loop_time / 1000)) {
+                    sent_quack = 1;
+                    next_quack_time = loop_time + quacker_freq_us;
+                }
             }
 
             if (ret == PICOQUIC_NO_ERROR_SIMULATE_NAT) {
