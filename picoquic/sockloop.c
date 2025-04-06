@@ -1194,9 +1194,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             /* TODO: Send quacks with a hint based on estimated num missing */
             int num_missing = 0;
             if (quic != NULL && quic->quacker != NULL && num_missing > 0 && !sent_quack) {
-                if (quic->quacker_hint && quic->quacker_riblt) {
-                    udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing * 3);
-                } else if (quic->quacker_hint && !quic->quacker_riblt) {
+                if (quic->quacker_hint) {
                     udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing);
                 } else {
                     udp_quacker_send_quack(quic->quacker, loop_time / 1000);
