@@ -333,11 +333,13 @@ int sample_client_callback(picoquic_cnx_t* cnx,
             }
             break;
         case picoquic_callback_almost_ready:
-            fprintf(stdout, "Connection to the server completed, almost ready.\n");
+            uint64_t almost_ready_time = picoquic_current_time();
+            fprintf(stdout, "Connection to the server completed, almost ready. %.6fs\n", almost_ready_time / 1000000.0);
             break;
         case picoquic_callback_ready:
             /* TODO: Check that the transport parameters are what the sample expects */
-            fprintf(stdout, "Connection to the server confirmed.\n");
+            uint64_t ready_time = picoquic_current_time();
+            fprintf(stdout, "Connection to the server confirmed. %.6fs\n", ready_time / 1000000.0);
             break;
         default:
             /* unexpected -- just ignore. */
@@ -453,11 +455,10 @@ static int sample_client_init(char const* server_name, int server_port, char con
      * We use minimal options on the client side, keeping the transport
      * parameter values set by default for picoquic. This could be fixed later.
      */
-
     if (ret == 0) {
         client_ctx->default_dir = default_dir;
-
-        printf("Starting connection to %s, port %d\n", server_name, server_port);
+        uint64_t now = picoquic_current_time();
+        printf("Starting connection to %s, port %d. %.6fs\n", server_name, server_port, now / 1000000.0);
 
         /* Create a client connection */
         *cnx = picoquic_create_cnx(*quic, picoquic_null_connection_id, picoquic_null_connection_id,
