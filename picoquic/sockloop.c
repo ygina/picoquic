@@ -1002,7 +1002,18 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                 if (quic != NULL && quic->quacker != NULL) {
                     quack_id = sidekick_fixed_offset_to_id(received_buffer,
                         (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
-                    should_quack |= udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
+
+                    // QuACK manually here in case we set the "immediate" flag
+                    if (udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id)) {
+                        if (quic->quacker_hint) {
+                            /* TODO: Send quacks with a hint based on estimated num missing */
+                            int num_missing = 0;
+                            udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing);
+                        } else {
+                            udp_quacker_send_quack(quic->quacker, loop_time / 1000);
+                        }
+                        next_quack_time = loop_time + quacker_freq_us;
+                    }
                 }
 
                 if (loop_callback != NULL) {
