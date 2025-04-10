@@ -1006,9 +1006,12 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     // QuACK manually here in case we set the "immediate" flag
                     if (udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id)) {
                         if (quic->quacker_hint) {
-                            /* TODO: Send quacks with a hint based on estimated num missing */
-                            int num_missing = 0;
-                            udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing);
+                            int num_missing = picoquic_count_sack_holes(quic, loop_time);
+                            if (num_missing >= 0)
+                                // Add a small buffer of 4 for timeouts...?
+                                udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing + 4);
+                            else
+                                udp_quacker_send_quack(quic->quacker, loop_time / 1000);
                         } else {
                             udp_quacker_send_quack(quic->quacker, loop_time / 1000);
                         }
@@ -1198,9 +1201,12 @@ void* picoquic_packet_loop_v3(void* v_ctx)
 
             if (quic != NULL && quic->quacker != NULL && should_quack) {
                 if (quic->quacker_hint) {
-                    /* TODO: Send quacks with a hint based on estimated num missing */
-                    int num_missing = 0;
-                    udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing);
+                    int num_missing = picoquic_count_sack_holes(quic, loop_time);
+                    if (num_missing >= 0)
+                        // Add a small buffer of 4 for timeouts...?
+                        udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing + 4);
+                    else
+                        udp_quacker_send_quack(quic->quacker, loop_time / 1000);
                 } else {
                     udp_quacker_send_quack(quic->quacker, loop_time / 1000);
                 }
