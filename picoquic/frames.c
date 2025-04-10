@@ -4051,6 +4051,41 @@ const uint8_t* picoquic_decode_ack_frame(picoquic_cnx_t* cnx, const uint8_t* byt
     return bytes;
 }
 
+int picoquic_count_sack_holes(picoquic_quic_t* quic, uint64_t current_time) {
+    picoquic_cnx_t* cnx = picoquic_get_earliest_cnx_to_wake(quic, current_time);
+    if (cnx == NULL) {
+        return -1;
+    }
+
+    // Get the ACK context
+    picoquic_ack_context_t* ack_ctx = &cnx->ack_ctx[picoquic_packet_context_application];
+    if (picoquic_sack_list_is_empty(&ack_ctx->sack_list)) {
+        return 0;
+    }
+
+    // Intialize variables and get the first and last SACK items
+    int num_holes = 0;
+    uint64_t num_block = 0;
+    uint64_t lowest_acknowledged = 0;
+    picoquic_sack_item_t* first_sack = picoquic_sack_first_item(&ack_ctx->sack_list);
+    picoquic_sack_item_t* last_sack = picoquic_sack_next_sidekick_item(
+        picoquic_sack_last_item(&ack_ctx->sack_list), first_sack, current_time, 0);
+
+    // Iterate through the SACK list
+    picoquic_sack_item_t* next_sack = last_sack;
+    lowest_acknowledged = picoquic_sack_item_range_start(next_sack);
+    next_sack = picoquic_sack_next_sidekick_item(
+        picoquic_sack_previous_item(next_sack), first_sack, current_time, 0);
+    while (num_block < 32 && next_sack != NULL) {
+        num_holes += lowest_acknowledged - picoquic_sack_item_range_end(next_sack) - 2; /* per spec */
+        lowest_acknowledged = picoquic_sack_item_range_start(next_sack);
+        next_sack = picoquic_sack_next_sidekick_item(
+            picoquic_sack_previous_item(next_sack), first_sack, current_time, 0);
+        num_block++;
+    }
+
+    return num_holes;
+}
 
 uint8_t* picoquic_format_ack_frame_in_context(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t* bytes_max,
     int* more_data, uint64_t current_time, picoquic_ack_context_t* ack_ctx, int* need_time_stamp,
