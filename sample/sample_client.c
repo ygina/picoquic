@@ -514,7 +514,7 @@ int picoquic_sample_client(char const * server_name, char const * cca,
     char const * logfile, int server_port, char const * default_dir,
     int nb_files, char const ** file_names, int sidekick_ack_delay,
     int quacker, size_t threshold, uint32_t freq_pkts, uint64_t freq_ms,
-    char* target_addr, int riblt, int hint)
+    char* target_addr, int riblt, int hint, int optimistic_cache_policy)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     sidekick_init_logging(logfile);
@@ -532,7 +532,7 @@ int picoquic_sample_client(char const * server_name, char const * cca,
         &server_address, &quic, &cnx, &client_ctx);
 
     if (quacker) {
-        quic->quacker = udp_quacker_new(threshold, freq_pkts, freq_ms, target_addr, riblt, 0);
+        quic->quacker = udp_quacker_new(threshold, freq_pkts, freq_ms, target_addr, riblt, optimistic_cache_policy);
         quic->quacker_riblt = riblt;
         quic->quacker_hint = hint;
     } else {
