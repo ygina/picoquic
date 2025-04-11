@@ -3816,7 +3816,6 @@ int picoquic_count_sack_holes(picoquic_quic_t* quic, uint64_t current_time) {
 
     // Intialize variables and get the first and last SACK items
     int num_holes = 0;
-    uint64_t num_block = 0;
     uint64_t lowest_acknowledged = 0;
     picoquic_sack_item_t* first_sack = picoquic_sack_first_item(&ack_ctx->sack_list);
     picoquic_sack_item_t* last_sack = picoquic_sack_next_sidekick_item(
@@ -3827,12 +3826,14 @@ int picoquic_count_sack_holes(picoquic_quic_t* quic, uint64_t current_time) {
     lowest_acknowledged = picoquic_sack_item_range_start(next_sack);
     next_sack = picoquic_sack_next_sidekick_item(
         picoquic_sack_previous_item(next_sack), first_sack, current_time, 0);
-    while (num_block < 32 && next_sack != NULL) {
-        num_holes += lowest_acknowledged - picoquic_sack_item_range_end(next_sack) - 2; /* per spec */
+    while (next_sack != NULL) {
+        // Gap:  A variable-length integer indicating the number of contiguous
+        //   unacknowledged packets preceding the packet number one lower than
+        //   the smallest in the preceding ACK Range. --> use -1 instead of -2
+        num_holes += lowest_acknowledged - picoquic_sack_item_range_end(next_sack) - 1;
         lowest_acknowledged = picoquic_sack_item_range_start(next_sack);
         next_sack = picoquic_sack_next_sidekick_item(
             picoquic_sack_previous_item(next_sack), first_sack, current_time, 0);
-        num_block++;
     }
 
     // fprintf(stderr, "%d ", num_holes);
