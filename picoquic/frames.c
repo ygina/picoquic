@@ -4051,14 +4051,25 @@ const uint8_t* picoquic_decode_ack_frame(picoquic_cnx_t* cnx, const uint8_t* byt
     return bytes;
 }
 
+static picoquic_ack_context_t* picoquic_ack_ctx(picoquic_quic_t* quic)
+{
+    picosplay_node_t* node;
+    picoquic_cnx_t* cnx;
+
+    node = picosplay_first(&quic->cnx_wake_tree);
+    if (node == NULL) {
+        return NULL;
+    }
+    cnx = (picoquic_cnx_t *)((char*)node - offsetof(struct st_picoquic_cnx_t, cnx_wake_node));
+    return &cnx->ack_ctx[picoquic_packet_context_application];
+}
+
 int picoquic_count_sack_holes(picoquic_quic_t* quic, uint64_t current_time) {
-    picoquic_cnx_t* cnx = picoquic_get_earliest_cnx_to_wake(quic, current_time);
-    if (cnx == NULL) {
+    // Get the ACK context
+    picoquic_ack_context_t* ack_ctx = picoquic_ack_ctx(quic);
+    if (ack_ctx == NULL) {
         return -1;
     }
-
-    // Get the ACK context
-    picoquic_ack_context_t* ack_ctx = &cnx->ack_ctx[picoquic_packet_context_application];
     if (picoquic_sack_list_is_empty(&ack_ctx->sack_list)) {
         return 0;
     }
@@ -4084,6 +4095,7 @@ int picoquic_count_sack_holes(picoquic_quic_t* quic, uint64_t current_time) {
         num_block++;
     }
 
+    // fprintf(stderr, "%d ", num_holes);
     return num_holes;
 }
 
