@@ -852,6 +852,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
     uint64_t quacker_freq_us = 0;
     uint64_t next_quack_time = current_time;
     uint64_t discovery_sent = current_time;
+    int should_quack = 0;
     int sidekick_fd = 0;
     int is_sidekick_event = 0;
 
@@ -888,6 +889,26 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         uint8_t* received_buffer;
         uint64_t previous_time;
 
+        // Send a quACK if we were supposed to based on the previous loop
+        current_time = picoquic_current_time();
+        if (quic != NULL && quic->quacker != NULL) {
+            should_quack |= udp_quacker_update_time(quic->quacker, current_time / 1000);
+            if (should_quack) {
+                if (quic->quacker_hint) {
+                    int num_missing = picoquic_count_sack_holes(quic, current_time);
+                    if (num_missing >= 0)
+                        // Add a small buffer of 4 for timeouts...?
+                        udp_quacker_send_quack_with_hint(quic->quacker, current_time / 1000, num_missing + 4);
+                    else
+                        udp_quacker_send_quack(quic->quacker, current_time / 1000);
+                } else {
+                    udp_quacker_send_quack(quic->quacker, current_time / 1000);
+                }
+                next_quack_time = current_time + quacker_freq_us;
+                should_quack = 0;
+            }
+        }
+
         if_index_to = 0;
         /* The "loop immediate" condition is set when a packet has been
         * received and processed successfully. We call select again with
@@ -898,7 +919,6 @@ void* picoquic_packet_loop_v3(void* v_ctx)
         * ever sending responses or ACKs. We moderate that by counting the number
         * of loops in "immediate" mode, and ignoring the "loop
         * immediate" condition if that number reaches a limit */
-        current_time = picoquic_current_time();
         if (!loop_immediate) {
             nb_loop_immediate = 1;
             delta_t = picoquic_get_next_wake_delay(quic, current_time, delay_max);
@@ -969,7 +989,6 @@ void* picoquic_packet_loop_v3(void* v_ctx)
             uint64_t loop_time = current_time;
             size_t bytes_sent = 0;
             size_t nb_packets_sent = 0;
-            int should_quack = 0;
 
             if (bytes_recv > 0) {
 #ifdef _WINDOWS
@@ -1004,21 +1023,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                 if (quic != NULL && quic->quacker != NULL) {
                     quack_id = sidekick_fixed_offset_to_id(received_buffer,
                         (size_t)bytes_recv, ID_OFFSET - UDP_PAYLOAD_OFFSET);
-
-                    // QuACK manually here in case we set the "immediate" flag
-                    if (udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id)) {
-                        if (quic->quacker_hint) {
-                            int num_missing = picoquic_count_sack_holes(quic, loop_time);
-                            if (num_missing >= 0)
-                                // Add a small buffer of 4 for timeouts...?
-                                udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing + 4);
-                            else
-                                udp_quacker_send_quack(quic->quacker, loop_time / 1000);
-                        } else {
-                            udp_quacker_send_quack(quic->quacker, loop_time / 1000);
-                        }
-                        next_quack_time = loop_time + quacker_freq_us;
-                    }
+                    should_quack |= udp_quacker_insert(quic->quacker, loop_time / 1000, quack_id);
                 }
 
                 if (loop_callback != NULL) {
@@ -1034,10 +1039,6 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     loop_immediate = 1;
                     continue;
                 }
-            }
-
-            if (quic != NULL && quic->quacker != NULL) {
-                should_quack |= udp_quacker_update_time(quic->quacker, loop_time / 1000);
             }
 
             if (ret == PICOQUIC_NO_ERROR_SIMULATE_NAT) {
@@ -1222,20 +1223,6 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                 else {
                     break;
                 }
-            }
-
-            if (quic != NULL && quic->quacker != NULL && should_quack) {
-                if (quic->quacker_hint) {
-                    int num_missing = picoquic_count_sack_holes(quic, loop_time);
-                    if (num_missing >= 0)
-                        // Add a small buffer of 4 for timeouts...?
-                        udp_quacker_send_quack_with_hint(quic->quacker, loop_time / 1000, num_missing + 4);
-                    else
-                        udp_quacker_send_quack(quic->quacker, loop_time / 1000);
-                } else {
-                    udp_quacker_send_quack(quic->quacker, loop_time / 1000);
-                }
-                next_quack_time = loop_time + quacker_freq_us;
             }
 
             if (ret == 0 && loop_callback != NULL) {
