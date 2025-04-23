@@ -898,7 +898,7 @@ void* picoquic_packet_loop_v3(void* v_ctx)
                     int num_missing = picoquic_count_sack_holes(quic, current_time);
                     if (num_missing >= 0)
                         // Add a small buffer of 4 for timeouts...?
-                        udp_quacker_send_quack_with_hint(quic->quacker, current_time / 1000, num_missing + 4);
+                        udp_quacker_send_quack_with_hint(quic->quacker, current_time / 1000, num_missing + 1);
                     else
                         udp_quacker_send_quack(quic->quacker, current_time / 1000);
                 } else {
