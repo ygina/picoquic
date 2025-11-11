@@ -366,6 +366,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_path_deleted:
     case picoquic_callback_path_quality_changed:
     case picoquic_callback_path_address_observed:
+    case picoquic_callback_next_path_allowed:
     case picoquic_callback_app_wakeup:
         // In future: receive and forward reset, stop_sending, close, possibly other events
         printf("Received event %d on connection to %s\n",
