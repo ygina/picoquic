@@ -195,6 +195,16 @@ int sample_server_callback(picoquic_cnx_t* cnx,
     }
 
     if (ret == 0) {
+        if (fin_or_event != picoquic_callback_prepare_to_send) {
+            uint64_t local = picoquic_get_local_error(cnx);
+            uint64_t remote = picoquic_get_remote_error(cnx);
+            if (local != 0 || remote != 0) {
+                fprintf(stdout, "Local error=0x%" PRIx64
+                    " Remote error=0x%" PRIx64 "\n",
+                    picoquic_get_local_error(cnx),
+                    picoquic_get_remote_error(cnx));
+            }
+        }
         switch (fin_or_event) {
         case picoquic_callback_stream_data:
         case picoquic_callback_stream_fin:
