@@ -48,6 +48,7 @@
 #include "picoquic_sample.h"
 #include "picoquic_packet_loop.h"
 #include "picoquic_bbr.h"
+#include "picoquic_internal.h"
 
 /* Server context and callback management:
  *
@@ -272,7 +273,8 @@ int sample_server_callback(picoquic_cnx_t* cnx,
                 picoquic_provide_stream_data_buffer(bytes, available, is_fin, !is_fin);
                 stream_ctx->file_sent += available;
                 if (stream_ctx->file_sent >= stream_ctx->file_length) {
-                    fprintf(stdout, "Finished file transfer of %zu bytes\n", stream_ctx->file_sent);
+                    fprintf(stdout, "Finished file transfer of %zu bytes, %ld spurious retransmissions\n",
+                        stream_ctx->file_sent, cnx->nb_spurious);
                 }
             }
             break;
@@ -330,7 +332,7 @@ int picoquic_sample_server(int server_port, int nbytes, const char* cca,
     /* Start: start the QUIC process with cert and key files */
     int ret = 0;
     picoquic_quic_t* quic = NULL;
-    char const* qlog_dir = PICOQUIC_SAMPLE_SERVER_QLOG_DIR;
+    // char const* qlog_dir = PICOQUIC_SAMPLE_SERVER_QLOG_DIR;
     uint64_t current_time = 0;
     sample_server_ctx_t default_context = { 0 };
 
