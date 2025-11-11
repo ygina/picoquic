@@ -367,6 +367,7 @@ target_include_directories(picoquic-core
     PRIVATE
         ${PTLS_INCLUDE_DIRS}
         ${OPENSSL_INCLUDE_DIR}
+        ../../quacker/include
     PUBLIC
         ${MBEDTLS_INCLUDE_DIRS}
         picoquic
@@ -376,9 +377,11 @@ target_link_libraries(picoquic-core
     PRIVATE
         ${OPENSSL_LIBRARIES}
         ${MBEDTLS_LIBRARIES}
+        quacker
     PUBLIC
         ${PTLS_LIBRARIES}
         Threads::Threads)
+link_directories(../../quacker/target/release)
 set_picoquic_compile_settings(picoquic-core)
 
 if (BUILD_DEMO OR BUILD_LOGREADER OR (BUILD_TESTING AND picoquic_BUILD_TESTS))
@@ -392,6 +395,7 @@ if (BUILD_LOGLIB)
     target_include_directories(picoquic-log
         PRIVATE
             ${PTLS_INCLUDE_DIRS}
+            ../../quacker/include
         PUBLIC
             picoquic
             loglib)
@@ -484,7 +488,7 @@ if(BUILD_TESTING AND picoquic_BUILD_TESTS)
         sample/sample_client.c
         sample/sample_server.c)
     target_link_libraries(picoquic_sample PRIVATE picoquic-log picoquic-core)
-    target_include_directories(picoquic_sample PRIVATE loglib picoquic)
+    target_include_directories(picoquic_sample PRIVATE loglib picoquic ../../quacker/include)
     set_picoquic_compile_settings(picoquic_sample)
 
     add_test(NAME picoquic_ct

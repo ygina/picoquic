@@ -49,6 +49,7 @@
 #include "picoquic_internal.h"
 #include "picoquic_sample.h"
 #include "picoquic_bbr.h"
+#include "quacker.h"
 
  /* Client context and callback management:
   *
@@ -527,6 +528,12 @@ int picoquic_sample_client(char const * server_name, char const * cca,
         ticket_store_filename, token_store_filename, sidekick_ack_delay,
         &server_address, &quic, &cnx, &client_ctx);
 
+    if (quacker) {
+        quic->quacker = udp_quacker_new(threshold, freq_pkts, freq_ms, target_addr);
+    } else {
+        quic->quacker = NULL;
+    }
+
     if (ret == 0) {
         /* Initialize all the streams contexts from the list of streams passed on the API. */
         client_ctx.file_names = file_names;
@@ -559,6 +566,10 @@ int picoquic_sample_client(char const * server_name, char const * cca,
 
     /* Free the Client context */
     sample_client_free_context(&client_ctx);
+    /* Free the quacker */
+    if (quic->quacker != NULL) {
+        udp_quacker_free(quic->quacker);
+    }
 
     return ret;
 }
