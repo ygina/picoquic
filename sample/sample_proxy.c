@@ -97,8 +97,6 @@ typedef struct st_sample_proxy_ctx_t {
     sample_proxy_buf_t to_client_buf;
 } sample_proxy_ctx_t;
 
-int INITIAL_CAPACITY = 10000;
-
 int init_buf(sample_proxy_buf_t* buf) {
     if (pthread_mutex_init(&buf->lock, NULL) != 0) {
         printf("Mutex initialization failed\n");
@@ -173,7 +171,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         proxy_ctx = &global_proxy_ctx;
         global_proxy_ctx.to_client_cnx = cnx;
         picoquic_set_callback(cnx, sample_proxy_callback_to_client, proxy_ctx);
-        picoquic_enable_keep_alive(cnx, 10000); // keep-alive at 1ms
+        picoquic_enable_keep_alive(cnx, 10000); // keep-alive at 10ms (10000 microseconds)
         if (DEBUG) {
             printf("[DEBUG] New connection from: ");
             print_cnx_info(cnx, stream_id);
@@ -232,7 +230,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 print_cnx_info(global_proxy_ctx.to_client_cnx, global_proxy_ctx.to_client_stream_id);
                 printf("[DEBUG] Time: %lu\n", picoquic_current_time());
             }
-        // New data from client
+        // New data from client on already-established connection
         } else if (stream_ctx->stream_type == TO_CLIENT) {
             // Forward immediately to server
             ret = picoquic_add_to_stream(global_proxy_ctx.to_server_cnx,
@@ -278,30 +276,32 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         // Connection is ready for sending
         size_t   to_send = 0;
         int      is_fin = 0;
-        if (DEBUG) {
-            printf("[DEBUG] Connection ready for sending data: ");
-            print_cnx_info(cnx, stream_id);
-            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
-        }
-        pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
-        // Bytes that need to be sent
-        to_send = global_proxy_ctx.to_client_buf.pending_bytes;
-        is_fin = global_proxy_ctx.to_client_buf.is_fin;
-        // length indicates max. number of bytes that can be sent
-        if (to_send > length) {
-            to_send = length;
-            is_fin = 0;
-        }
-        // Update pending bytes
-        global_proxy_ctx.to_client_buf.pending_bytes -= to_send;
-        pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
+        if (stream_ctx->stream_type == TO_CLIENT) {
+            if (DEBUG) {
+                printf("[DEBUG] Connection ready for sending data: ");
+                print_cnx_info(cnx, stream_id);
+                printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+            }
+            pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
+            // Bytes that need to be sent
+            to_send = global_proxy_ctx.to_client_buf.pending_bytes;
+            is_fin = global_proxy_ctx.to_client_buf.is_fin;
+            // length indicates max. number of bytes that can be sent
+            if (to_send > length) {
+                to_send = length;
+                is_fin = 0;
+            }
+            // Update pending bytes
+            global_proxy_ctx.to_client_buf.pending_bytes -= to_send;
+            pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
 
-        // As in sample_server, we don't actually need to write data to `bytes`;
-        // we just need to make sure that `to_send` bytes are sent.
-        picoquic_provide_stream_data_buffer(bytes, to_send, is_fin, !is_fin);
-        if (DEBUG) {
-            printf("[DEBUG] Sending %lu bytes to client (FIN: %s)\n", to_send, is_fin ? "true" : "false");
-            printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+            // As in sample_server, we don't actually need to write data to `bytes`;
+            // we just need to make sure that `to_send` bytes are sent.
+            picoquic_provide_stream_data_buffer(bytes, to_send, is_fin, !is_fin);
+            if (DEBUG) {
+                printf("[DEBUG] Sending %lu bytes to client (FIN: %s)\n", to_send, is_fin ? "true" : "false");
+                printf("[DEBUG] Time: %lu\n", picoquic_current_time());
+            }
         }
         break;
     case picoquic_callback_close:
