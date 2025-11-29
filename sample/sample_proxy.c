@@ -69,11 +69,9 @@ typedef struct st_sample_proxy_stream_ctx_t {
     sample_conn_type_t stream_type;
 } sample_proxy_stream_ctx_t;
 
-// For buffering data before marking stream as active
+// For buffering data received from the server.
 typedef struct st_sample_proxy_buf_t {
-    void           *data;
-    size_t          data_length;
-    size_t          data_capacity;
+    size_t          pending_bytes;
     int             is_fin;
     pthread_mutex_t lock;
 } sample_proxy_buf_t;
@@ -106,13 +104,7 @@ int init_buf(sample_proxy_buf_t* buf) {
         printf("Mutex initialization failed\n");
         return -1;
     }
-    buf->data = malloc(INITIAL_CAPACITY);
-    if (buf->data == NULL) {
-        printf("Failed to allocate memory for buffer\n");
-        return -1;
-    }
-    buf->data_length = 0;
-    buf->data_capacity = INITIAL_CAPACITY;
+    buf->pending_bytes = 0;
     buf->is_fin = 0;
     return 0;
 }
@@ -198,7 +190,7 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_stream_fin:
         // Data arrival on stream, maybe with fin mark
         if (stream_ctx == NULL) {
-            // Streams for the client were already set up; should never be NULL in this CB
+            // New data from client
             proxy_ctx->to_client_stream_id = stream_id;
             stream_ctx = (sample_proxy_stream_ctx_t*)malloc(sizeof(sample_proxy_stream_ctx_t));
             if (stream_ctx == NULL) {
@@ -217,32 +209,20 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
             printf("Client stream initialized with ID %lu\n", stream_id);
         }
 
-        // Read and forward data directly
+        // New data from server
         if (stream_ctx->stream_type == TO_SERVER) {
-            if (global_proxy_ctx.to_client_buf.data_length + length >
-                global_proxy_ctx.to_client_buf.data_capacity) {
-                pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
-                global_proxy_ctx.to_client_buf.data_capacity *= 2;
-                if (DEBUG) {
-                    printf("[DEBUG] Reallocating buffer to %lu bytes\n",
-                           global_proxy_ctx.to_client_buf.data_capacity);
-                }
-                global_proxy_ctx.to_client_buf.data = realloc(global_proxy_ctx.to_client_buf.data, global_proxy_ctx.to_client_buf.data_capacity);
-                pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
-            }
             pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
-            memcpy(global_proxy_ctx.to_client_buf.data + global_proxy_ctx.to_client_buf.data_length, bytes, length);
-            global_proxy_ctx.to_client_buf.data_length += length;
+            global_proxy_ctx.to_client_buf.pending_bytes += length;
             if (fin_or_event == picoquic_callback_stream_fin) {
                 global_proxy_ctx.to_client_buf.is_fin = 1;
             }
-            // Data needs to be sent
+            pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
+            // Data needs to be sent; this will trigger the callback
             if (picoquic_mark_active_stream(global_proxy_ctx.to_client_cnx,
                                         global_proxy_ctx.to_client_stream_id, 1,
                                         global_proxy_ctx.to_client_stream_ctx) != 0) {
                 fprintf(stderr, "Failed to mark client stream active\n");
             }
-            pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
             if (DEBUG && ret == 0) {
                 printf("[DEBUG] Appended %lu bytes from server to client buffer (FIN: %s).\n", length,
                        fin_or_event == picoquic_callback_stream_fin ? "true" : "false");
@@ -252,7 +232,9 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
                 print_cnx_info(global_proxy_ctx.to_client_cnx, global_proxy_ctx.to_client_stream_id);
                 printf("[DEBUG] Time: %lu\n", picoquic_current_time());
             }
+        // New data from client
         } else if (stream_ctx->stream_type == TO_CLIENT) {
+            // Forward immediately to server
             ret = picoquic_add_to_stream(global_proxy_ctx.to_server_cnx,
                                          global_proxy_ctx.to_server_stream_id,
                                          bytes, length, // Directly forward the bytes
@@ -293,8 +275,8 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
         }
         break;
     case picoquic_callback_prepare_to_send:
+        // Connection is ready for sending
         size_t   to_send = 0;
-        uint8_t* buffer;
         int      is_fin = 0;
         if (DEBUG) {
             printf("[DEBUG] Connection ready for sending data: ");
@@ -302,30 +284,25 @@ int sample_proxy_callback(picoquic_cnx_t* cnx,
             printf("[DEBUG] Time: %lu\n", picoquic_current_time());
         }
         pthread_mutex_lock(&global_proxy_ctx.to_client_buf.lock);
-        // Bytes to send
-        to_send = global_proxy_ctx.to_client_buf.data_length;
+        // Bytes that need to be sent
+        to_send = global_proxy_ctx.to_client_buf.pending_bytes;
         is_fin = global_proxy_ctx.to_client_buf.is_fin;
+        // length indicates max. number of bytes that can be sent
         if (to_send > length) {
             to_send = length;
             is_fin = 0;
         }
+        // Update pending bytes
+        global_proxy_ctx.to_client_buf.pending_bytes -= to_send;
+        pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
 
-        buffer = picoquic_provide_stream_data_buffer(bytes, to_send, is_fin,
-                                                     global_proxy_ctx.to_client_buf.data_length > to_send);
-        if (buffer != NULL) {
-            memcpy(buffer, global_proxy_ctx.to_client_buf.data, to_send);
-        }
+        // As in sample_server, we don't actually need to write data to `bytes`;
+        // we just need to make sure that `to_send` bytes are sent.
+        picoquic_provide_stream_data_buffer(bytes, to_send, is_fin, !is_fin);
         if (DEBUG) {
             printf("[DEBUG] Sending %lu bytes to client (FIN: %s)\n", to_send, is_fin ? "true" : "false");
             printf("[DEBUG] Time: %lu\n", picoquic_current_time());
         }
-        // Update data
-        global_proxy_ctx.to_client_buf.data_length -= to_send;
-        if (global_proxy_ctx.to_client_buf.data_length > 0) {
-            memmove(global_proxy_ctx.to_client_buf.data, global_proxy_ctx.to_client_buf.data + to_send,
-                    global_proxy_ctx.to_client_buf.data_length);
-        }
-        pthread_mutex_unlock(&global_proxy_ctx.to_client_buf.lock);
         break;
     case picoquic_callback_close:
     case picoquic_callback_application_close:
